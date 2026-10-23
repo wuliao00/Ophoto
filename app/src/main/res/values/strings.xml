@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Ophoto</string>
+    <string name="overlay_notification_title">Ophoto 大师参数悬浮窗</string>
+    <string name="overlay_notification_desc">正在相机上层展示实时调色与曝光参考</string>
+</resources>
