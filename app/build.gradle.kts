@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,6 +16,37 @@ val sharedDebugKeystoreFile: File? = System.getenv("OPHOTO_DEBUG_KEYSTORE")
     ?.let { file(it) }
     ?.takeIf { it.isFile }
 
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.isFile) {
+        keystorePropsFile.inputStream().use { load(it) }
+    }
+}
+
+val releaseStoreFile: File? = (
+    System.getenv("OPHOTO_RELEASE_STORE_FILE")
+        ?: keystoreProps.getProperty("storeFile")
+    )?.takeIf { it.isNotBlank() }
+    ?.let { rootProject.file(it) }
+    ?.takeIf { it.isFile }
+
+val releaseStorePassword: String? = System.getenv("OPHOTO_RELEASE_STORE_PASSWORD")
+    ?.takeIf { it.isNotBlank() }
+    ?: keystoreProps.getProperty("storePassword")?.takeIf { it.isNotBlank() }
+
+val releaseKeyAlias: String? = System.getenv("OPHOTO_RELEASE_KEY_ALIAS")
+    ?.takeIf { it.isNotBlank() }
+    ?: keystoreProps.getProperty("keyAlias")?.takeIf { it.isNotBlank() }
+
+val releaseKeyPassword: String? = System.getenv("OPHOTO_RELEASE_KEY_PASSWORD")
+    ?.takeIf { it.isNotBlank() }
+    ?: keystoreProps.getProperty("keyPassword")?.takeIf { it.isNotBlank() }
+
+val hasReleaseSigning = releaseStoreFile != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
+
 android {
     namespace = "com.ophoto"
     compileSdk = 35
@@ -25,6 +58,17 @@ android {
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
                 keyPassword = "android"
+            }
+        }
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -45,6 +89,9 @@ android {
             }
         }
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
