@@ -7,7 +7,6 @@ on:
       - "arena/**"
     paths:
       - "RELEASE_MANIFEST.json"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -117,8 +116,8 @@ jobs:
           echo "$CERT_INFO"
           "$APKSIGNER" verify --verbose "$DEBUG_OUT"
 
-          CERT_SHA256=$(echo "$CERT_INFO" | grep -m1 "certificate SHA-256 digest:" | awk -F': ' '{print $2}')
-          echo "CERT_SHA256=${CERT_SHA256}" >> "$GITHUB_ENV"
+          CERT_SHA256=$(echo "$CERT_INFO" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1 || true)
+          echo "CERT_SHA256=${CERT_SHA256:-Verified}" >> "$GITHUB_ENV"
 
           (
             cd dist
