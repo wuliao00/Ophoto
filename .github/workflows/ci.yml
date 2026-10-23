@@ -34,26 +34,12 @@ jobs:
           fi
 
       - name: Run unit tests, lint, debug APK & instrumented test compilation
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+
+      - name: Verify exported Room schemas match committed snapshots
         run: |
-          set +e
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace > gradle-ci.log 2>&1
-          RC=$?
-          cat gradle-ci.log
-          if [ -f "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json" ]; then
-            B64_SCHEMA=$(gzip -c "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json" | base64 -w0)
-            echo "::notice title=ROOM_SCHEMA_GZ_B64::${B64_SCHEMA}"
-          fi
-          if [ $RC -ne 0 ]; then
-            DIAG=$(python3 -c '
-          with open("gradle-ci.log", errors="replace") as f:
-              lines = [l.rstrip() for l in f]
-          interesting = [l for l in lines if any(k in l for k in ["e: ", "FAILED", "Exception", "Error:", "error:", "Assert", " > "])]
-          tail = interesting[-35:] if interesting else lines[-35:]
-          print("%0A".join(tail)[:3500])
-          ')
-            echo "::error title=GRADLE_DIAG::${DIAG}"
-            exit $RC
-          fi
+          git diff --exit-code -- app/schemas/
+          test -z "$(git ls-files --others --exclude-standard app/schemas/)"
 
       - name: Assemble ProGuard/R8 release APK & verify baseline profile
         run: |
