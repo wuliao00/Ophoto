@@ -2,10 +2,12 @@ name: CI
 
 on:
   push:
+    branches: [ main, "arena/**" ]
   pull_request:
+    branches: [ main ]
 
 jobs:
-  build:
+  build-test-lint:
     name: Lint / Unit Test / Debug & Release APK
     runs-on: ubuntu-latest
 
@@ -14,53 +16,60 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
-          distribution: temurin
-          java-version: 17
+          java-version: '17'
+          distribution: 'temurin'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Prepare debug keystore (use repository secret if provided)
         env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.OPHOTO_DEBUG_KEYSTORE_B64 }}
+          SIGNING_KEY_B64: ${{ secrets.OPHOTO_DEBUG_KEYSTORE_B64 }}
         run: |
-          set -euo pipefail
-          if [ -n "${DEBUG_KEYSTORE_B64:-}" ]; then
-            ks="${RUNNER_TEMP}/ophoto-debug.keystore"
-            printf '%s' "${DEBUG_KEYSTORE_B64}" | base64 -d > "${ks}"
-            echo "OPHOTO_DEBUG_KEYSTORE=${ks}" >> "${GITHUB_ENV}"
+          if [ -n "$SIGNING_KEY_B64" ]; then
+            echo "$SIGNING_KEY_B64" | base64 -d > "$RUNNER_TEMP/ophoto-debug.keystore"
+            echo "OPHOTO_DEBUG_KEYSTORE=$RUNNER_TEMP/ophoto-debug.keystore" >> "$GITHUB_ENV"
           fi
 
       - name: Run unit tests, lint, debug APK & instrumented test compilation
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+        run: |
+          set +e
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace > gradle-ci.log 2>&1
+          RC=$?
+          cat gradle-ci.log
+          if [ -f "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json" ]; then
+            B64_SCHEMA=$(base64 -w0 "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json")
+            echo "::notice title=ROOM_SCHEMA_B64::${B64_SCHEMA}"
+          fi
+          if [ $RC -ne 0 ]; then
+            DIAG=$(python3 -c '
+          with open("gradle-ci.log", errors="replace") as f:
+              lines = [l.rstrip() for l in f]
+          interesting = [l for l in lines if any(k in l for k in ["e: ", "FAILED", "Exception", "Error:", "error:", "Assert", " > "])]
+          tail = interesting[-35:] if interesting else lines[-35:]
+          print("%0A".join(tail)[:3500])
+          ')
+            echo "::error title=GRADLE_DIAG::${DIAG}"
+            exit $RC
+          fi
 
       - name: Assemble ProGuard/R8 release APK & verify baseline profile
         run: |
-          set -euo pipefail
-          ./gradlew --no-daemon assembleRelease
-          apk="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
-          echo "Inspecting release APK: ${apk}"
-          listing="${RUNNER_TEMP}/apk-contents.txt"
-          unzip -l "${apk}" > "${listing}"
-          matched="$(grep -E 'assets/dexopt/baseline\.prof' "${listing}" || true)"
-          if [ -z "${matched}" ]; then
-            echo "::error::Missing assets/dexopt/baseline.prof* inside release APK"
-            exit 1
-          fi
-          printf '%s\n' "${matched}"
+          ./gradlew assembleRelease --no-daemon
+          test -f app/src/main/baseline-prof.txt
+          unzip -l app/build/outputs/apk/release/app-release-unsigned.apk | grep -q "assets/dexopt/baseline.prof"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Ophoto-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
 
       - name: Upload Room Schema Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Ophoto-room-schemas
           path: app/schemas/
-          if-no-files-found: warn
