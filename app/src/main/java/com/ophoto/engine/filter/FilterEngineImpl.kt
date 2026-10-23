@@ -51,7 +51,7 @@ class FilterEngineImpl : IFilterEngine {
         return true
     }
 
-    fun loadFilterWithExplicitLut(filter: FilterPreset, lut: CubeLut3D?) {
+    override fun loadFilterWithExplicitLut(filter: FilterPreset, lut: CubeLut3D?) {
         activePreset = filter
         activeLut = lut
         strength = filter.defaultStrength.coerceIn(0f, 1f)

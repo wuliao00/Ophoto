@@ -71,7 +71,7 @@ fun rememberDeviceRollDegrees(enabled: Boolean): Float {
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
             }
             if (sensor != null) {
-                sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+                sm?.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
             }
             onDispose {
                 sm?.unregisterListener(listener)

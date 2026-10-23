@@ -105,6 +105,7 @@ data class HistogramData(
  */
 interface IFilterEngine {
     fun loadFilter(filter: FilterPreset): Boolean
+    fun loadFilterWithExplicitLut(filter: FilterPreset, lut: CubeLut3D?)
     fun applyToPreviewTexture(textureId: Int): Int
     fun applyToImage(input: Bitmap): Bitmap
     fun setStrength(strength: Float)

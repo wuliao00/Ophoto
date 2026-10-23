@@ -40,8 +40,8 @@ jobs:
           RC=$?
           cat gradle-ci.log
           if [ -f "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json" ]; then
-            B64_SCHEMA=$(base64 -w0 "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json")
-            echo "::notice title=ROOM_SCHEMA_B64::${B64_SCHEMA}"
+            B64_SCHEMA=$(gzip -c "app/schemas/com.ophoto.data.local.OphotoDatabase/1.json" | base64 -w0)
+            echo "::notice title=ROOM_SCHEMA_GZ_B64::${B64_SCHEMA}"
           fi
           if [ $RC -ne 0 ]; then
             DIAG=$(python3 -c '
