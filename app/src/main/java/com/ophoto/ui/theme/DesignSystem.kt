@@ -107,7 +107,7 @@ fun OphotoPrimaryButton(
             containerColor = if (enabled) BrassGold else HairlineBorder,
             contentColor = if (enabled) TextOnAccent else TextMuted,
         ),
-        content = content,
+        content = { content() },
     )
 }
 
@@ -130,7 +130,7 @@ fun OphotoOutlinedButton(
         ),
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, accent, RoundedCornerShape(12.dp)),
-        content = content,
+        content = { content() },
     )
 }
 
