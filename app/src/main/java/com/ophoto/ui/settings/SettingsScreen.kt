@@ -39,7 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ophoto.OphotoContainer
 import com.ophoto.core.permission.CameraPermissionHelper
+import com.ophoto.data.local.FloatingHudStyle
 import com.ophoto.data.local.UserSettings
+import com.ophoto.data.local.VolumeKeyAction
 import com.ophoto.data.repository.BuiltInPresets
 import com.ophoto.service.MasterOverlayService
 import com.ophoto.ui.theme.BorderSubtle
@@ -48,6 +50,7 @@ import com.ophoto.ui.theme.ControlPillBg
 import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OphotoCard
+import com.ophoto.ui.theme.OphotoChip
 import com.ophoto.ui.theme.OphotoDivider
 import com.ophoto.ui.theme.OphotoMetricCell
 import com.ophoto.ui.theme.OphotoSection
@@ -209,6 +212,18 @@ fun SettingsScreen(
                         color = TextSecondary,
                     )
 
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(FloatingHudStyle.entries) { style ->
+                            OphotoChip(
+                                label = style.label,
+                                selected = settings.floatingHudStyle == style,
+                                onClick = {
+                                    scope.launch { container.preferences.update { it.copy(floatingHudStyle = style) } }
+                                },
+                            )
+                        }
+                    }
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!overlayGranted) {
                             Button(
@@ -279,34 +294,38 @@ fun SettingsScreen(
                     OphotoDivider()
                     SettingSwitchRow(
                         title = "物理音量键充当快门",
-                        subtitle = "抓拍街景与冬季戴手套时直接按压音量加减键触发快门",
-                        checked = settings.volumeKeyAsShutter,
+                        subtitle = "抓拍街景与冬季戴手套时直接按压音量加减键触发快门（关闭时用于变焦推拉）",
+                        checked = settings.volumeKeyAction == VolumeKeyAction.SHUTTER,
                     ) { v ->
-                        scope.launch { container.preferences.update { it.copy(volumeKeyAsShutter = v) } }
+                        scope.launch {
+                            container.preferences.update {
+                                it.copy(volumeKeyAction = if (v) VolumeKeyAction.SHUTTER else VolumeKeyAction.ZOOM)
+                            }
+                        }
                     }
                     OphotoDivider()
                     SettingSwitchRow(
-                        title = "保留上一次滤镜与构图状态",
-                        subtitle = "重启应用时自动恢复上次使用的构图参考线与比例",
-                        checked = settings.rememberLastCameraState,
+                        title = "触屏即拍（点触对焦后自动快门）",
+                        subtitle = "街拍盲拍时轻触取景画面对焦锁定后立即触发快门释放",
+                        checked = settings.touchToCapture,
                     ) { v ->
-                        scope.launch { container.preferences.update { it.copy(rememberLastCameraState = v) } }
+                        scope.launch { container.preferences.update { it.copy(touchToCapture = v) } }
                     }
                     OphotoDivider()
                     SettingSwitchRow(
-                        title = "同时保存无滤镜原片备份",
-                        subtitle = "使用胶片预设拍照时额外保存一张纯净无调色底片至相册",
-                        checked = settings.keepUnfilteredBackup,
+                        title = "前置镜头自拍水平镜像",
+                        subtitle = "前置镜头成片保持与取景器一致的自然镜像视角",
+                        checked = settings.mirrorFrontCamera,
                     ) { v ->
-                        scope.launch { container.preferences.update { it.copy(keepUnfilteredBackup = v) } }
+                        scope.launch { container.preferences.update { it.copy(mirrorFrontCamera = v) } }
                     }
                     OphotoDivider()
                     SettingSwitchRow(
-                        title = "导出照片默认剥离 GPS 坐标",
-                        subtitle = "社交平台分享时保护拍摄地隐私，保留快门/ISO/焦段光学 EXIF",
-                        checked = settings.stripGpsOnShare,
+                        title = "隐私保护：默认不写入 GPS 地理坐标",
+                        subtitle = "照片保存与分享时不记录拍摄地经纬度，仅保留快门/ISO/焦段光学 EXIF",
+                        checked = !settings.saveGpsLocation,
                     ) { v ->
-                        scope.launch { container.preferences.update { it.copy(stripGpsOnShare = v) } }
+                        scope.launch { container.preferences.update { it.copy(saveGpsLocation = !v) } }
                     }
                 }
             }
