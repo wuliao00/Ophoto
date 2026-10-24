@@ -128,7 +128,6 @@ fun OphotoOutlinedButton(
             contentColor = accent,
         ),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent, RoundedCornerShape(12.dp)),
         content = { content() },
     )
 }
