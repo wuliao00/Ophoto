@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.GridOn
@@ -92,7 +93,11 @@ import com.ophoto.engine.render.GlLutPreviewView
 import com.ophoto.ui.theme.AlertCrimson
 import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
+import com.ophoto.ui.theme.GlowBrass
+import com.ophoto.ui.theme.GlowOrange
 import com.ophoto.ui.theme.InstrumentDeck
+import com.ophoto.ui.theme.OphotoCard
+import com.ophoto.ui.theme.OphotoChip
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.ShutterOrange
@@ -571,26 +576,35 @@ fun CameraScreen(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    Surface(
-                        color = Color(0xBD090A0D),
-                        shape = RoundedCornerShape(12.dp),
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .clickable {
-                                permLauncher.launch(
-                                    CameraPermissionHelper
-                                        .requiredCameraPermissions(includeAudio = false)
-                                        .toTypedArray(),
-                                )
-                            },
+                            .align(Alignment.Center)
+                            .size(260.dp)
+                            .clip(CircleShape)
+                            .background(ControlPillBg, CircleShape)
+                            .border(1.dp, HairlineBorder, CircleShape),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "光学仿真预览 · 点击授权真机摄像头",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = BrassGold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "等待相机授权",
+                                tint = BrassGold,
+                                modifier = Modifier.size(30.dp),
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                text = "光学仿真预览",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = BrassGold,
+                            )
+                            Text(
+                                text = "点击下方快门区域授权真机摄像头",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
                     }
                 }
 
@@ -697,11 +711,11 @@ fun CameraScreen(
 
         // 4. Real-Time Filter Ribbon + Strength Slider (Doc §3 & §11)
         if (showFilterTray) {
-            Column(
+            OphotoCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(InstrumentDeck, RoundedCornerShape(14.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
+                borderDp = 1.dp,
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -823,17 +837,25 @@ fun CameraScreen(
             // Center: Tactile Two-Stage Precision Shutter Button
             Box(
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(86.dp)
                     .clip(CircleShape)
+                    .background(
+                        when {
+                            isRecordingVideo -> GlowOrange.copy(alpha = 0.45f)
+                            captureMode == CameraCaptureMode.VIDEO -> ShutterOrange.copy(alpha = 0.25f)
+                            else -> GlowBrass.copy(alpha = 0.30f)
+                        },
+                        CircleShape,
+                    )
                     .border(3.dp, BrassGold, CircleShape)
                     .clickable { triggerCapture() }
-                    .padding(6.dp),
+                    .padding(8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .clip(if (isRecordingVideo) RoundedCornerShape(12.dp) else CircleShape)
+                        .size(70.dp)
+                        .clip(if (isRecordingVideo) RoundedCornerShape(14.dp) else CircleShape)
                         .background(
                             when {
                                 isRecordingVideo -> AlertCrimson
@@ -896,12 +918,12 @@ private fun ProParameterPanel(
     onUpdateFocus: (FocusConfig) -> Unit,
     onUpdateWb: (WhiteBalanceConfig) -> Unit,
 ) {
-    Column(
+    OphotoCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 5.dp)
-            .background(InstrumentDeck, RoundedCornerShape(14.dp))
             .padding(horizontal = 10.dp, vertical = 7.dp),
+        borderDp = 1.dp,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -911,15 +933,11 @@ private fun ProParameterPanel(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(ProDialTab.entries) { tab ->
                     val selected = tab == activeTab
-                    Text(
-                        text = tab.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected) ObsidianBg else BrassGold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) BrassGold else ControlPillBg)
-                            .clickable { onSelectTab(tab) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    OphotoChip(
+                        label = tab.label,
+                        selected = selected,
+                        accent = BrassGold,
+                        onClick = { onSelectTab(tab) },
                     )
                 }
             }

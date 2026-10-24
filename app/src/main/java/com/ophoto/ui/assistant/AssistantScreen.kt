@@ -74,6 +74,7 @@ import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
+import com.ophoto.ui.theme.OphotoSection
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.ShutterOrange
 import com.ophoto.ui.theme.TextPrimary
@@ -111,15 +112,10 @@ fun AssistantScreen(
             .background(ObsidianBg)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = "摄影现场助手 · Field HUD",
-            style = MaterialTheme.typography.headlineSmall,
-            color = TextPrimary,
-        )
-        Text(
-            text = "镜头灵感 · 俯视布光图 · 黄金时刻/景深/ND计算 · 出发清单与话术（全程离线）",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
+        OphotoSection(
+            title = "摄影现场助手 · Field HUD",
+            subtitle = "镜头灵感 · 俯视布光图 · 黄金时刻/景深/ND计算 · 出发清单与话术（全程离线）",
+            modifier = Modifier.fillMaxWidth(),
         )
 
         Spacer(Modifier.height(8.dp))

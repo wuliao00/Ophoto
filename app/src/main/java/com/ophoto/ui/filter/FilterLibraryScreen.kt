@@ -82,9 +82,13 @@ import com.ophoto.service.MasterOverlayService
 import com.ophoto.ui.camera.TopHudChip
 import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
+import com.ophoto.ui.theme.EmptyState
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
+import com.ophoto.ui.theme.OphotoCard
+import com.ophoto.ui.theme.OphotoChip
+import com.ophoto.ui.theme.OphotoSection
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.ShutterOrange
 import com.ophoto.ui.theme.TextPrimary
@@ -158,23 +162,16 @@ fun FilterLibraryScreen(
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         // Header + Import / Create / Floating HUD Actions
+        OphotoSection(
+            title = "大师调色与 LUT 仓库",
+            subtitle = "支持 .cube / .filterpack / 社区预设导入与相机悬浮窗参考",
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
-                Text(
-                    text = "大师调色与 LUT 仓库",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = TextPrimary,
-                )
-                Text(
-                    text = "支持 .cube / .filterpack / 社区预设导入与相机悬浮窗参考",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                )
-            }
             if (overlayRunning) {
                 TopHudChip(
                     label = "关闭悬浮窗",
@@ -275,12 +272,26 @@ fun FilterLibraryScreen(
         Spacer(Modifier.height(10.dp))
 
         // Preset Cards List
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            items(filteredPresets, key = { it.id }) { preset ->
+        if (filteredPresets.isEmpty()) {
+            EmptyState(
+                icon = Icons.Default.FilterAltOff,
+                title = "暂无匹配滤镜",
+                desc = "尝试调整分类、取消收藏筛选或更换关键词再搜索",
+                modifier = Modifier.weight(1f).padding(horizontal = 24.dp),
+                onAction = {
+                    selectedCategory = null
+                    favoritesOnly = false
+                    searchQuery = ""
+                },
+                actionLabel = "重置筛选",
+            )
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(filteredPresets, key = { it.id }) { preset ->
                 MasterPresetCard(
                     preset = preset,
                     sampleBitmap = baseSample,
@@ -479,6 +490,7 @@ private fun MasterPresetCard(
                     maxLines = 2,
                 )
             }
+        }
         }
 
         Spacer(Modifier.height(10.dp))

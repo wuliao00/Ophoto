@@ -70,11 +70,10 @@ fun SettingsScreen(
         contentPadding = PaddingValues(bottom = 28.dp),
     ) {
         item {
-            Text("设置与机型适配中心", style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
-            Text(
-                "本地零上传 · 针对 OPPO / OnePlus / realme 多摄、高刷与 ColorOS 深度优化",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+            OphotoSection(
+                title = "设置与机型适配中心",
+                subtitle = "本地零上传 · 针对 OPPO / OnePlus / realme 多摄、高刷与 ColorOS 深度优化",
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 

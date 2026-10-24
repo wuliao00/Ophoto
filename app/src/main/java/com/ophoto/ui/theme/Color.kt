@@ -2,19 +2,33 @@ package com.ophoto.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val ObsidianBg = Color(0xFF090A0D)
-val ViewfinderSurface = Color(0xFF11131A)
-val InstrumentDeck = Color(0xFF171B24)
-val ControlPillBg = Color(0xFF212734)
-val HairlineBorder = Color(0xFF2B3242)
+/* ── Base Surfaces ── */
+val ObsidianBg = Color(0xFF090A0D)        // 全局背景（最深）
+val ViewfinderSurface = Color(0xFF11131A) // 取景器表面
+val InstrumentDeck = Color(0xFF171B24)    // 控制面板 / 卡片底
+val ControlPillBg = Color(0xFF212734)    // 药丸 / 芯片底
+val HairlineBorder = Color(0xFF2B3242)   // 细边框
+val SurfaceRaised = Color(0xFF1E2430)    // 浮起卡片（更亮一层）
 
-val BrassGold = Color(0xFFE5B869)
-val BrassGoldDim = Color(0xFF9E7B3E)
-val ShutterOrange = Color(0xFFFF6A2B)
-val OpticalEmerald = Color(0xFF34D399)
-val CyanTelemetry = Color(0xFF38BDF8)
-val AlertCrimson = Color(0xFFEF4444)
+/* ── Brand Accents ── */
+val BrassGold = Color(0xFFE5B869)        // 主色黄铜金
+val BrassGoldDim = Color(0xFF9E7B3E)     // 主色暗调
+val BrassGoldSoft = Color(0xFFE5B869).copy(alpha = 0.18f) // 主色浅遮罩
+val ShutterOrange = Color(0xFFFF6A2B)    // 快门橙 / 危险强调
+val OpticalEmerald = Color(0xFF34D399)   // 翡翠绿（水平/成功）
+val CyanTelemetry = Color(0xFF38BDF8)    // 青色遥测
+val AlertCrimson = Color(0xFFEF4444)     // 警告红
 
+/* ── Gradient & Glow (used by Deck & Shutter) ── */
+val GradientStart = Color(0xFF1C2230)    // 渐变起
+val GradientMid = Color(0xFF0F121A)      // 渐变中
+val GradientEnd = Color(0xFF090A0D)      // 渐变终
+val GlowBrass = Color(0xFFE5B869).copy(alpha = 0.35f)   // 黄铜光晕
+val GlowEmerald = Color(0xFF34D399).copy(alpha = 0.30f) // 翡翠光晕
+val GlowOrange = Color(0xFFFF6A2B).copy(alpha = 0.30f)  // 橙光晕
+
+/* ── Typography Colors ── */
 val TextPrimary = Color(0xFFF8FAFC)
 val TextSecondary = Color(0xFF94A3B8)
 val TextMuted = Color(0xFF64748B)
+val TextOnAccent = Color(0xFF090A0D)     // 在金/橙背景上的文字
