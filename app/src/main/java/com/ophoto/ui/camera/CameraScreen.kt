@@ -95,6 +95,7 @@ import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
 import com.ophoto.ui.theme.GlowBrass
 import com.ophoto.ui.theme.GlowOrange
+import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.OphotoCard
 import com.ophoto.ui.theme.OphotoChip

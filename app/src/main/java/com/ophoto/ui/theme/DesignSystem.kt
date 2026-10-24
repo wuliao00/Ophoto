@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /* ========================================================================
@@ -69,14 +70,12 @@ fun OphotoChip(
     val border = if (selected) 1.dp else 0.dp
     val borderColor = if (selected) accent else Color.Transparent
 
-    val clickableMod = if (onClick != null) Modifier.clickable(onClick = onClick!!) else Modifier
-
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .background(containerColor, RoundedCornerShape(10.dp))
             .border(border, borderColor, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = onClick != null, onClick = onClick ?: {})
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

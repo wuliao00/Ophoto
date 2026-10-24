@@ -332,7 +332,7 @@ fun FilterLibraryScreen(
                 )
             }
         }
-    }
+        }
 
     if (showPasteDialog) {
         PasteImportDialog(

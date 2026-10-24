@@ -45,6 +45,7 @@ import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OpticalEmerald
+import com.ophoto.ui.theme.OphotoSection
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.launch
