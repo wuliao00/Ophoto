@@ -390,7 +390,7 @@ fun FilterLibraryScreen(
 }
 
 @Composable
-private fun MasterPresetCard(
+fun MasterPresetCard(
     preset: FilterPreset,
     sampleBitmap: android.graphics.Bitmap,
     container: OphotoContainer,

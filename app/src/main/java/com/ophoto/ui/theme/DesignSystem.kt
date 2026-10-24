@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -185,7 +186,7 @@ fun OphotoSection(
 /* 空状态页 */
 @Composable
 fun EmptyState(
-    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.CloudOff,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Info,
     title: String = "暂无内容",
     desc: String? = null,
     modifier: Modifier = Modifier,
