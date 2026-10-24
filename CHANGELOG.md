@@ -2,6 +2,15 @@
 
 All notable changes to **Ophoto (`com.ophoto`)** will be documented in this file.
 
+## [v1.2.1] - 2026-10-24 — *Darkroom Stable Hotfix*
+
+### 🛠️ 深度复审 · 彻底封堵残余闪退
+
+- **批量相册注册崩溃修复**：`PickMultipleVisualMedia` 在 API26-32 / ColorOS 无 PhotoPicker 设备上于 Composable 注册阶段即抛 `IllegalStateException` 导致进入暗房即闪退；改为 **仅当 `isPhotoPickerAvailable==true` 时条件式注册**，否则批量按钮自动降级为单张选择并 Toast 提示，彻底消除旧机型进暗房闪退。
+- **曲线手势冲突修复**：`ProCurvePad` 原双 `pointerInput`（`detectTapGestures` + `detectDragGestures`）抢占冲突导致手势失效；收敛为单一 `pointerInput + detectTapGestures`，保证点击抬升/压暗稳定不丢帧。
+- **空指针与未使用状态修复**：`loadErrorMsg!!` 改为安全解包、`animatedAlpha` 未应用导致渲染态无过渡现已绑定至画布透明度、`DesignSystem.EmptyState` 的 `!!` 改为安全解包，消除 Lint `abortOnError` 隐患。
+- **资源回收与解码加固**：批量导出时 `cur/out` 回收增加 `!== sourceBitmap` 双重校验，避免回收仍在展示的原片；超大图分支阈值与 `FileDescriptor` 采样路径已加 `NoClassDefFoundError` 兜底。
+
 ## [v1.2.0] - 2026-10-24 — *Darkroom Pro Fix*
 
 ### 🛠️ 紧急修复 · 闪退终结

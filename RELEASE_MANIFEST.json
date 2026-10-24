@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0",
-  "version_code": 3,
-  "tag": "v1.2.0",
+  "version": "1.2.1",
+  "version_code": 4,
+  "tag": "v1.2.1",
   "channel": "stable",
-  "codename": "Darkroom Pro Fix"
+  "codename": "Darkroom Stable Hotfix"
 }

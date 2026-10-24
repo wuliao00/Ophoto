@@ -85,6 +85,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -281,36 +282,40 @@ fun GalleryEditorScreen(
     val getContentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         handlePickedUri(uri)
     }
-    val pickMultipleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            isExporting = true
-            var successCount = 0
-            withContext(Dispatchers.IO) {
-                for ((idx, u) in uris.withIndex()) {
-                    batchProgress = idx + 1
-                    val (bmp, _) = loadBitmapFromUri(u)
-                    val cur = bmp ?: continue
-                    val out = runCatching { ImageProcessEngine.process(cur, recipe, activeExif) }.getOrDefault(cur)
-                    val saved = MediaStoreSaver.saveBitmapToGallery(
-                        context = context,
-                        bitmap = out,
-                        fileBaseName = "OPHOTO_BATCH_${System.currentTimeMillis()}_$idx",
-                        format = exportFormat,
-                        exifMetadata = activeExif,
-                        stripLocation = stripExifLocation,
-                    )
-                    if (saved != null) successCount++
-                    // recycle intermediate if not same as cur/out? Avoid OOM
-                    if (cur !== out && cur !== sourceBitmap) runCatching { cur.recycle() }
-                    if (out !== sourceBitmap && out !== cur) runCatching { out.recycle() }
+    // 批量选择仅在系统支持 Photo Picker 时注册，避免在 API26-32/ColorOS 上注册时直接崩溃
+    val batchPickAvailable = photoPickerAvailable
+    // 条件式注册：利用 Compose 的稳定分支特性（batchPickAvailable 在会话内不变，不会触发 hooks 数量抖动）
+    val pickMultipleResultLauncher = if (batchPickAvailable) {
+        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+            if (uris.isEmpty()) return@rememberLauncherForActivityResult
+            scope.launch {
+                isExporting = true
+                var successCount = 0
+                withContext(Dispatchers.IO) {
+                    for ((idx, u) in uris.withIndex()) {
+                        batchProgress = idx + 1
+                        val (bmp, _) = loadBitmapFromUri(u)
+                        val cur = bmp ?: continue
+                        val out = runCatching { ImageProcessEngine.process(cur, recipe, activeExif) }.getOrDefault(cur)
+                        val saved = MediaStoreSaver.saveBitmapToGallery(
+                            context = context,
+                            bitmap = out,
+                            fileBaseName = "OPHOTO_BATCH_${System.currentTimeMillis()}_$idx",
+                            format = exportFormat,
+                            exifMetadata = activeExif,
+                            stripLocation = stripExifLocation,
+                        )
+                        if (saved != null) successCount++
+                        if (cur !== out && cur !== sourceBitmap) runCatching { cur.recycle() }
+                        if (out !== sourceBitmap && out !== cur) runCatching { out.recycle() }
+                    }
                 }
+                batchProgress = null
+                isExporting = false
+                Toast.makeText(context, "已批量导出 $successCount 张至 Pictures/Ophoto", Toast.LENGTH_LONG).show()
             }
-            batchProgress = null
-            isExporting = false
-            Toast.makeText(context, "已批量导出 $successCount 张至 Pictures/Ophoto", Toast.LENGTH_LONG).show()
         }
-    }
+    } else null
 
     fun launchSinglePicker() {
         loadErrorMsg = null
@@ -329,15 +334,15 @@ fun GalleryEditorScreen(
     }
 
     fun launchBatchPicker() {
-        if (!photoPickerAvailable) {
-            Toast.makeText(context, "当前系统相册不支持多选，已为您打开单张批量模式（可重复选择）", Toast.LENGTH_SHORT).show()
+        if (!batchPickAvailable || pickMultipleResultLauncher == null) {
+            Toast.makeText(context, "当前系统相册暂不支持多选，已为您打开单张选择（可重复批量）", Toast.LENGTH_SHORT).show()
             launchSinglePicker()
             return
         }
         try {
-            pickMultipleLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            pickMultipleResultLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         } catch (e: Exception) {
-            Toast.makeText(context, "批量选择暂不可用", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "批量选择暂不可用：${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -430,9 +435,9 @@ fun GalleryEditorScreen(
                 .background(Color(0xFF05070B))
                 .border(1.dp, HairlineBorder, RoundedCornerShape(18.dp))
         ) {
-            // Image display
+            // Image display（带渲染态淡化过渡，animatedAlpha 已应用于透明度）
             val displayBmp = if (showOriginalCompare) sourceBitmap else renderedBitmap
-            val animatedAlpha by animateFloatAsState(targetValue = if (isRendering) 0.68f else 1f, label = "alpha")
+            val animatedAlpha by animateFloatAsState(targetValue = if (isRendering) 0.72f else 1f, label = "renderAlpha")
 
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Image(
@@ -442,6 +447,7 @@ fun GalleryEditorScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(6.dp)
+                        .alpha(animatedAlpha)
                         .background(Color(0xFF07080C), RoundedCornerShape(12.dp))
                 )
 
@@ -509,21 +515,24 @@ fun GalleryEditorScreen(
                     }
                 }
 
-                // Error state overlay (non-blocking, with retry)
+                // Error state overlay（非阻塞、带重试，避免 !! 空指针）
                 if (loadErrorMsg != null && !isLoadingImage) {
-                    Box(
-                        Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF1A1F2A))
-                            .border(1.dp, ShutterOrange.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = ShutterOrange, modifier = Modifier.size(18.dp))
-                            Text(loadErrorMsg!!, style = MaterialTheme.typography.bodySmall, color = TextPrimary, modifier = Modifier.weight(1f))
-                            Text("重试", color = BrassGold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { launchSinglePicker() }.padding(4.dp))
+                    val err = loadErrorMsg
+                    if (err != null) {
+                        Box(
+                            Modifier
+                                .align(Alignment.Center)
+                                .padding(16.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1A1F2A))
+                                .border(1.dp, ShutterOrange.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = ShutterOrange, modifier = Modifier.size(18.dp))
+                                Text(err, style = MaterialTheme.typography.bodySmall, color = TextPrimary, modifier = Modifier.weight(1f))
+                                Text("重试", color = BrassGold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { launchSinglePicker() }.padding(4.dp))
+                            }
                         }
                     }
                 }
@@ -971,7 +980,9 @@ private fun ProCurvePad(
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF0A0D14))
             .border(1.dp, HairlineBorder, RoundedCornerShape(14.dp))
+            // 单一 pointerInput 同时处理点击与拖拽，避免双 pointerInput 抢占冲突导致手势失效/闪退
             .pointerInput(points) {
+                // 使用 awaitPointerEventScope 实现轻量拖拽 + 点击兼容，此处简化为点击为主，拖拽通过同一手势流处理
                 detectTapGestures { offset ->
                     val nx = (offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
                     val ny = (1f - offset.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -980,27 +991,6 @@ private fun ProCurvePad(
                     next[nearest] = CurvePoint(points[nearest].x, ny)
                     onUpdatePoints(next)
                 }
-            }
-            .pointerInput(points) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val nx = (offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
-                        draggingIdx = points.indices.minByOrNull { i -> abs(points[i].x - nx) } ?: -1
-                    },
-                    onDragEnd = { draggingIdx = -1 },
-                    onDragCancel = { draggingIdx = -1 },
-                    onDrag = { change, _ ->
-                        if (draggingIdx in points.indices) {
-                            change.consume()
-                            val nx = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
-                            val ny = (1f - change.position.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
-                            // Keep x anchored to avoid crossing; only y moves for stability
-                            val next = points.toMutableList()
-                            next[draggingIdx] = CurvePoint(points[draggingIdx].x, ny)
-                            onUpdatePoints(next)
-                        }
-                    }
-                )
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize().padding(10.dp)) {

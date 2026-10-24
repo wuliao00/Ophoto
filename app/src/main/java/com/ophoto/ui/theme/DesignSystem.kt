@@ -227,8 +227,10 @@ fun EmptyState(
         }
         if (onAction != null && actionLabel != null) {
             Spacer(Modifier.height(24.dp))
-            OphotoPrimaryButton(onClick = onAction!!) {
-                Text(actionLabel!!)
+            val action = onAction
+            val label = actionLabel
+            OphotoPrimaryButton(onClick = action) {
+                Text(label)
             }
         }
     }
