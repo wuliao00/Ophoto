@@ -47,10 +47,14 @@ jobs:
 
       - name: Assemble ProGuard/R8 release APK & verify baseline profile
         run: |
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee /tmp/release-build.log
           test -f app/src/main/baseline-prof.txt
           RELEASE_APK=$(ls app/build/outputs/apk/release/app-release*.apk | head -n 1)
           unzip -l "$RELEASE_APK" | grep -q "assets/dexopt/baseline.prof"
+
+      - name: Dump Release build output on failure
+        if: failure()
+        run: echo "===== RELEASE BUILD TAIL =====" && tail -n 120 /tmp/release-build.log || true
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
