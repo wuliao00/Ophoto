@@ -1,10 +1,11 @@
 # Ophoto · Pro Camera × 3D LUT Film Grading × On-Site Photo Assistant
 
 [![CI](https://github.com/wuliao00/Ophoto/actions/workflows/ci.yml/badge.svg)](https://github.com/wuliao00/Ophoto/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/wuliao00/Ophoto?color=FF6A2B&label=APK%20Release)](https://github.com/wuliao00/Ophoto/releases/latest)
 [![Platform](https://img.shields.io/badge/Android-API%2026--35%20(ColorOS%20%2F%20OxygenOS)-10B981)](https://developer.android.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **中文文档**: [README.md](README.md) · **Architecture & Security Spec**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> **📥 Direct Signed APK Download**: [**Ophoto v1.0.0 (`Ophoto-v1.0.0-release.apk`)**](https://github.com/wuliao00/Ophoto/releases/tag/v1.0.0) · **中文文档**: [README.md](README.md) · **Changelog**: [CHANGELOG.md](CHANGELOG.md) · **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 **Ophoto** (`com.ophoto`) is a clean-room open-source professional photography application tailored for **OPPO, OnePlus, and realme smartphones** (ColorOS / OxygenOS / realme UI) while remaining 100% compatible with standard Android 8.0+ devices.
 

@@ -1,0 +1,232 @@
+name: Release APK
+
+on:
+  push:
+    branches:
+      - main
+      - "arena/**"
+    paths:
+      - "RELEASE_MANIFEST.json"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create or update (e.g. v1.0.0)"
+        required: false
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release-apk:
+    name: Build, Sign & Publish Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve Release Version & Prepare Signing Keystore
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
+          REL_KEYSTORE_B64: ${{ secrets.OPHOTO_RELEASE_KEYSTORE_B64 }}
+          REL_STORE_PASSWORD: ${{ secrets.OPHOTO_RELEASE_STORE_PASSWORD }}
+          REL_KEY_ALIAS: ${{ secrets.OPHOTO_RELEASE_KEY_ALIAS }}
+          REL_KEY_PASSWORD: ${{ secrets.OPHOTO_RELEASE_KEY_PASSWORD }}
+          DBG_KEYSTORE_B64: ${{ secrets.OPHOTO_DEBUG_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          read -r MANIFEST_TAG MANIFEST_VER CODENAME < <(python3 -c '
+          import json
+          with open("RELEASE_MANIFEST.json", encoding="utf-8") as f:
+              m = json.load(f)
+          print(m["tag"], m["version"], m.get("codename", "Release"))
+          ')
+          TAG="${INPUT_TAG:-$MANIFEST_TAG}"
+          VERSION="${TAG#v}"
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE_CODENAME=${CODENAME}" >> "$GITHUB_ENV"
+
+          KEYSTORE_PATH="$RUNNER_TEMP/ophoto-release.jks"
+          if [ -n "$REL_KEYSTORE_B64" ]; then
+            echo "$REL_KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
+            echo "OPHOTO_RELEASE_STORE_FILE=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_STORE_PASSWORD=${REL_STORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_KEY_ALIAS=${REL_KEY_ALIAS}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_KEY_PASSWORD=${REL_KEY_PASSWORD}" >> "$GITHUB_ENV"
+          else
+            STORE_PASS="ophoto2026release"
+            KEY_ALIAS="ophoto_release"
+            keytool -genkeypair \
+              -keystore "$KEYSTORE_PATH" \
+              -storetype PKCS12 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias "$KEY_ALIAS" \
+              -storepass "$STORE_PASS" \
+              -keypass "$STORE_PASS" \
+              -dname "CN=Ophoto Release, OU=Optical Lab, O=Ophoto Open Source, L=Hong Kong, C=HK"
+            echo "OPHOTO_RELEASE_STORE_FILE=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_STORE_PASSWORD=${STORE_PASS}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_KEY_ALIAS=${KEY_ALIAS}" >> "$GITHUB_ENV"
+            echo "OPHOTO_RELEASE_KEY_PASSWORD=${STORE_PASS}" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$DBG_KEYSTORE_B64" ]; then
+            echo "$DBG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ophoto-debug.keystore"
+            echo "OPHOTO_DEBUG_KEYSTORE=$RUNNER_TEMP/ophoto-debug.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Signed Release & Debug APKs + Verify Signatures
+        run: |
+          set +e
+          ./gradlew testDebugUnitTest lintDebug assembleRelease assembleDebug --stacktrace > release-build.log 2>&1
+          RC=$?
+          cat release-build.log
+          if [ $RC -ne 0 ]; then
+            DIAG=$(tail -n 35 release-build.log | python3 -c 'import sys; print("%0A".join(l.rstrip() for l in sys.stdin)[:3200])')
+            echo "::error title=RELEASE_BUILD_DIAG::${DIAG}"
+            exit $RC
+          fi
+          set -euo pipefail
+
+          mkdir -p dist
+          RELEASE_OUT="dist/Ophoto-${RELEASE_TAG}-release.apk"
+          DEBUG_OUT="dist/Ophoto-${RELEASE_TAG}-debug.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RELEASE_OUT"
+          cp app/build/outputs/apk/debug/app-debug.apk "$DEBUG_OUT"
+
+          # Verify ART Baseline Profile inside signed R8 release APK
+          unzip -l "$RELEASE_OUT" | grep -q "assets/dexopt/baseline.prof"
+
+          # Cryptographically verify V1/V2/V3 signatures with Android SDK apksigner
+          APKSIGNER=$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          CERT_INFO=$("$APKSIGNER" verify --verbose --print-certs "$RELEASE_OUT")
+          echo "$CERT_INFO"
+          "$APKSIGNER" verify --verbose "$DEBUG_OUT"
+
+          CERT_SHA256=$(echo "$CERT_INFO" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1 || true)
+          echo "CERT_SHA256=${CERT_SHA256:-Verified}" >> "$GITHUB_ENV"
+
+          (
+            cd dist
+            sha256sum "Ophoto-${RELEASE_TAG}-release.apk" "Ophoto-${RELEASE_TAG}-debug.apk" > SHA256SUMS.txt
+          )
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload Signed APKs Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ophoto-${{ env.RELEASE_TAG }}-apks
+          path: dist/
+
+      - name: Publish GitHub Release & Upload APK Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          REL_SIZE=$(du -h "dist/Ophoto-${RELEASE_TAG}-release.apk" | cut -f1)
+          DBG_SIZE=$(du -h "dist/Ophoto-${RELEASE_TAG}-debug.apk" | cut -f1)
+          REL_SHA=$(awk '/-release\.apk/ {print $1}' dist/SHA256SUMS.txt)
+          DBG_SHA=$(awk '/-debug\.apk/ {print $1}' dist/SHA256SUMS.txt)
+          export REL_SIZE DBG_SIZE REL_SHA DBG_SHA
+
+          python3 -c '
+          import os, textwrap
+          tag = os.environ["RELEASE_TAG"]
+          codename = os.environ["RELEASE_CODENAME"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          rel_size = os.environ["REL_SIZE"]
+          dbg_size = os.environ["DBG_SIZE"]
+          rel_sha = os.environ["REL_SHA"]
+          dbg_sha = os.environ["DBG_SHA"]
+          cert_sha = os.environ.get("CERT_SHA256", "Verified")
+          notes = textwrap.dedent(f"""\
+              ## Ophoto {tag} · *{codename}* 正式版发布
+
+              适用于 **OPPO / OnePlus（一加）/ realme 真我（ColorOS 13–17 / OxygenOS / realme UI）** 及主流 **Android 8.0+（API 26–35）** 机型的专业光学相机、实时 3D LUT 胶片调色、系统大师模式悬浮窗与摄影现场助手一体化应用。
+
+              ---
+
+              ### 📥 APK 安装包直接下载
+
+              | 安装包文件 | 类型与说明 | 大小 | SHA-256 校验值 |
+              | --- | --- | --- | --- |
+              | **[Ophoto-{tag}-release.apk](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-release.apk)** | **正式签名版（强烈推荐手机日常安装）**：已开启 R8 代码压缩、资源精简、ART Baseline Profile 加速与 APK Signature Scheme v1/v2/v3 正式签名 | **{rel_size}** | `{rel_sha}` |
+              | **[Ophoto-{tag}-debug.apk](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-debug.apk)** | **调试签名版（开发者调试）**：保留完整调试符号与 ADB 调试支持 | **{dbg_size}** | `{dbg_sha}` |
+
+              - **APK 签名证书 SHA-256 指纹**：`{cert_sha}`
+
+              ---
+
+              ### 🚀 {tag} 核心功能亮点
+
+              1. **专业多摄相机与光学监看 (`CameraX + Camera2Interop`)**
+                 - 自动枚举超广角（`0.6x`）、大底主摄（`1x`）、人像中焦（`2x–3x`）、潜望长焦（`3.5x–6x`）与前摄，适配直板机与 Find N 折叠屏双栏界面。
+                 - 支持手动 ISO、手动快门速度、曝光补偿 EV、AE/AF 锁定、`2500K–10000K` 白平衡与 RGGB 色调微调、手动对焦 + `2.5x` 放大窗、AEB 包围曝光与慢门长曝光。
+                 - 内置九宫格、黄金螺旋、对角线、`XPan 65:24` 宽银幕遮幅、电子水平仪、实时 RGB 直方图、Sobel 峰值对焦与 `96%` 高光斑马纹。
+              2. **实时 OpenGL ES 3.0 3D LUT 引擎、安全导入与大师模式悬浮窗**
+                 - 内置 12 款原创无商标风险胶片预设（`青绿胶片`、`城市夜景`、`琥珀暖阳`、`银盐纪实`、`柔雾清透人像` 等）及配套 **OPPO 大师模式参考参数**。
+                 - 支持导入 `.cube` 3D LUT、`.json`、`.filterpack` 安全沙盒滤镜包、`OPHOTO1:` 口令二维码分享、社区大师 JSON 预设导入，并支持反向烘焙导出 `.cube` 文件。
+                 - 内置 **系统相机上方半透明大师参数悬浮窗**（标准大师卡 / 紧凑胶囊 / 迷你悬浮球）。
+              3. **摄影现场助手 (`Field Assistant`) & 无损暗房编辑器 (`Darkroom`)**
+                 - 参数化镜头构图卡（一键装载进相机开拍）、极坐标俯视布光图谱、NOAA 香港/全国黄金与蓝调时刻计算器、景深超焦距与 ND1000 慢门 B 门倒计时、陌生人破冰话术。
+                 - 暗房支持撤销/重做、单调三次样条 **交互式 RGB 曲线**、8 色相 HSL、裁剪遮罩、**画廊卡纸 / 曜石黑金 / 35mm 底片大师签注相框**及一键抹除 EXIF GPS 位置隐私。
+
+              ---
+
+              ### 📱 OPPO / ColorOS 安装与悬浮窗开启提示
+
+              1. 下载上方 **`Ophoto-{tag}-release.apk`** 并在手机中直接点击安装。
+              2. 如需在 ColorOS 14–17 系统原生相机上方开启「大师参数悬浮窗」时遇到系统提示**“受限设置”**：请前往 **系统设置 → 应用 → 应用管理 → Ophoto → 右上角 `⋮` → 允许受限设置**，随后即可一键开启悬浮窗。
+          """)
+          with open("release-notes.md", "w", encoding="utf-8") as f:
+              f.write(notes)
+          '
+
+          PUBLISH_LOG="publish.log"
+          (
+            set -euo pipefail
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              if [ "$GITHUB_REF_NAME" = "main" ]; then
+                git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+                git push origin "refs/tags/${RELEASE_TAG}" --force
+              fi
+              gh release edit "$RELEASE_TAG" \
+                --title "Ophoto ${RELEASE_TAG} · ${RELEASE_CODENAME} 正式版 (Signed APK)" \
+                --notes-file release-notes.md \
+                --latest
+              gh release upload "$RELEASE_TAG" \
+                "dist/Ophoto-${RELEASE_TAG}-release.apk" \
+                "dist/Ophoto-${RELEASE_TAG}-debug.apk" \
+                "dist/SHA256SUMS.txt" \
+                --clobber
+            else
+              gh release create "$RELEASE_TAG" \
+                "dist/Ophoto-${RELEASE_TAG}-release.apk" \
+                "dist/Ophoto-${RELEASE_TAG}-debug.apk" \
+                "dist/SHA256SUMS.txt" \
+                --target "$GITHUB_SHA" \
+                --title "Ophoto ${RELEASE_TAG} · ${RELEASE_CODENAME} 正式版 (Signed APK)" \
+                --notes-file release-notes.md \
+                --latest
+            fi
+          ) > "$PUBLISH_LOG" 2>&1
+          PUB_RC=$?
+          cat "$PUBLISH_LOG"
+          if [ $PUB_RC -ne 0 ]; then
+            PDIAG=$(cat "$PUBLISH_LOG" | python3 -c 'import sys; print("%0A".join(l.rstrip() for l in sys.stdin)[:3200])')
+            echo "::error title=RELEASE_PUBLISH_DIAG::${PDIAG}"
+            exit $PUB_RC
+          fi
