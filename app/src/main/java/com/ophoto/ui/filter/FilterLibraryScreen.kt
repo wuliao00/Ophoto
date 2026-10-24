@@ -100,7 +100,6 @@ import java.io.File
 import java.util.UUID
 
 @Composable
-@Composable
 fun MasterPresetCard(
     preset: FilterPreset,
     sampleBitmap: android.graphics.Bitmap,
@@ -265,6 +264,7 @@ fun MasterPresetCard(
             }
         }
     }
+@Composable
 fun FilterLibraryScreen(
     container: OphotoContainer,
     onApplyAndOpenCamera: (String) -> Unit,
