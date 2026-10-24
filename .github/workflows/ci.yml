@@ -34,7 +34,11 @@ jobs:
           fi
 
       - name: Run unit tests, lint, debug APK & instrumented test compilation
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace 2>&1 | tee /tmp/gradlew-output.log
+
+      - name: Dump Gradle output on failure
+        if: failure()
+        run: echo "===== GRADLE TAIL =====" && tail -n 120 /tmp/gradlew-output.log || true
 
       - name: Verify exported Room schemas match committed snapshots
         run: |
