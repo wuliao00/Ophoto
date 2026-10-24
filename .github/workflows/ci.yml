@@ -54,7 +54,13 @@ jobs:
 
       - name: Dump Release build output on failure
         if: failure()
-        run: echo "===== RELEASE BUILD TAIL =====" && tail -n 120 /tmp/release-build.log || true
+        run: |
+          echo "===== RELEASE BUILD ERRORS ====="
+          grep -E "error:|Error:|FAILED|Exception|Caused by|What went wrong|Could not|Cannot|unable" /tmp/release-build.log 2>/dev/null | head -n 30 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+          echo "===== RELEASE BUILD TAIL ====="
+          tail -n 40 /tmp/release-build.log 2>/dev/null || true
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
