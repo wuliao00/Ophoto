@@ -6,9 +6,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.RggbChannelVector
 import android.os.Build
 import android.os.Environment
@@ -16,6 +18,7 @@ import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
@@ -37,20 +40,27 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.concurrent.futures.await
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.common.util.concurrent.ListenableFuture
 import com.ophoto.core.device.OppoDeviceInspector
 import com.ophoto.core.log.SafeLogger
 import com.ophoto.engine.filter.FilterConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * Production CameraX + Camera2Interop Engine (Doc §4.1, §5, §8):
- * - Uses CameraX lifecycle stability with full Camera2 CaptureRequest overrides for Pro ISO,
- *   Shutter Speed (ns), Manual Focus diopters, Kelvin RGB channel gains, AE/AWB locks, and multi-lens selection.
+ * Production CameraX + Camera2Interop Engine:
+ * - Isolates Photo/Pro 2-stream binding (`Preview + ImageCapture`) from Video binding so sensor AE
+ *   can expose freely below 1/30s in indoor/low-light scenes without 3-surface HAL failures.
+ * - Streams real-time Camera2 `TotalCaptureResult` telemetry (ISO, Shutter, Aperture, Focus) and
+ *   powers Semi-Auto Reciprocity (ISO-priority / Shutter-priority) so Pro mode is never dark.
  */
 @OptIn(ExperimentalCamera2Interop::class)
 class CameraX2Engine(
@@ -69,10 +79,25 @@ class CameraX2Engine(
     private var lastLifecycleOwner: LifecycleOwner? = null
     private var lastSurfaceProvider: Preview.SurfaceProvider? = null
     private var activeCameraId: String = "0"
+    private var videoModeEnabled: Boolean = false
+    private var pendingZoomRatio: Float = 1.0f
+
     private var currentExposure = ExposureConfig()
     private var currentFocus = FocusConfig()
     private var currentWb = WhiteBalanceConfig()
     private var currentFilter = FilterConfig(null, 1f)
+
+    @Volatile
+    private var ambientMeteredIso: Int = 250
+
+    @Volatile
+    private var ambientMeteredExposureNs: Long = 20_000_000L // 1/50s indoor-safe baseline
+
+    @Volatile
+    private var lastTelemetryEmitMs: Long = 0L
+
+    private val _liveTelemetryFlow = MutableStateFlow(CameraLiveTelemetry())
+    override val liveTelemetryFlow: StateFlow<CameraLiveTelemetry> = _liveTelemetryFlow
 
     override suspend fun bindSession(
         lifecycleOwner: LifecycleOwner,
@@ -88,42 +113,127 @@ class CameraX2Engine(
         }
 
         val selector = buildSelectorForCameraId(cameraId)
-        val preview = Preview.Builder().build().also {
+
+        val previewBuilder = Preview.Builder()
+        Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult,
+                ) {
+                    val reportedIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+                    val reportedNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                    val reportedAperture = result.get(CaptureResult.LENS_APERTURE)
+                    val reportedFocus = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+
+                    if (!currentExposure.isAnyManual) {
+                        if (reportedIso != null && reportedIso in 25..51200) {
+                            ambientMeteredIso = reportedIso
+                        }
+                        if (reportedNs != null && reportedNs in 50_000L..2_000_000_000L) {
+                            ambientMeteredExposureNs = reportedNs
+                        }
+                    }
+
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastTelemetryEmitMs >= 160L) {
+                        lastTelemetryEmitMs = now
+                        val curIso = reportedIso ?: ambientMeteredIso
+                        val curNs = reportedNs ?: ambientMeteredExposureNs
+                        val deltaEv = currentExposure.estimateExposureDeltaStops(
+                            ambientMeteredIso,
+                            ambientMeteredExposureNs,
+                        )
+                        _liveTelemetryFlow.value = CameraLiveTelemetry(
+                            iso = curIso,
+                            shutterSeconds = (curNs.toDouble() / 1_000_000_000.0).coerceAtLeast(1e-5),
+                            aperture = reportedAperture ?: 1.8f,
+                            focusDiopters = reportedFocus ?: 0f,
+                            ambientIso = ambientMeteredIso,
+                            ambientExposureNs = ambientMeteredExposureNs,
+                            exposureDeltaEv = deltaEv,
+                        )
+                    }
+                }
+            },
+        )
+
+        val preview = previewBuilder.build().also {
             it.surfaceProvider = surfaceProvider
         }
+
         val imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setJpegQuality(95)
             .build()
-
-        val qualitySelector = QualitySelector.fromOrderedList(
-            listOf(Quality.UHD, Quality.FHD, Quality.HD),
-        )
-        val recorder = Recorder.Builder()
-            .setQualitySelector(qualitySelector)
-            .build()
-        val videoCapture = VideoCapture.withOutput(recorder)
 
         runCatching {
             provider.unbindAll()
-            activeCamera = provider.bindToLifecycle(
-                lifecycleOwner,
-                selector,
-                preview,
-                imageCapture,
-                videoCapture,
-            )
+            if (videoModeEnabled) {
+                val qualitySelector = QualitySelector.fromOrderedList(
+                    listOf(Quality.FHD, Quality.UHD, Quality.HD),
+                )
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(qualitySelector)
+                    .build()
+                val videoCapture = VideoCapture.withOutput(recorder)
+                activeCamera = runCatching {
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        selector,
+                        preview,
+                        imageCapture,
+                        videoCapture,
+                    )
+                }.getOrElse {
+                    provider.unbindAll()
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        selector,
+                        preview,
+                        videoCapture,
+                    )
+                }
+                videoCaptureUseCase = videoCapture
+            } else {
+                // Bind strictly Preview + ImageCapture in Photo/Pro modes so low-light exposure
+                // can lengthen past 1/30s and all Camera2 HAL levels bind reliably!
+                activeCamera = provider.bindToLifecycle(
+                    lifecycleOwner,
+                    selector,
+                    preview,
+                    imageCapture,
+                )
+                videoCaptureUseCase = null
+            }
+
             previewUseCase = preview
             imageCaptureUseCase = imageCapture
-            videoCaptureUseCase = videoCapture
-            applyCamera2CaptureOptions()
+            applyExposureCompensationIndex(currentExposure)
+            applyCamera2CaptureOptionsAsync()
+            if (pendingZoomRatio != 1.0f) {
+                setZoomRatio(pendingZoomRatio)
+            }
         }.onFailure { err ->
             SafeLogger.error("CameraX2Engine", "Failed to bind camera session", err)
         }
         Unit
     }
 
+    override suspend fun setVideoModeEnabled(enabled: Boolean) {
+        if (videoModeEnabled == enabled) return
+        videoModeEnabled = enabled
+        val owner = lastLifecycleOwner
+        val surface = lastSurfaceProvider
+        if (owner != null && surface != null) {
+            bindSession(owner, surface, activeCameraId)
+        }
+    }
+
     override suspend fun openCamera(cameraId: String) {
         activeCameraId = cameraId
+        pendingZoomRatio = 1.0f
         val owner = lastLifecycleOwner
         val surface = lastSurfaceProvider
         if (owner != null && surface != null) {
@@ -142,17 +252,32 @@ class CameraX2Engine(
         val capture = imageCaptureUseCase
             ?: return PhotoResult(null, 0, 0, 0, "相机尚未就绪")
 
-        capture.flashMode = when (config.flashMode) {
-            FlashSetting.OFF -> ImageCapture.FLASH_MODE_OFF
-            FlashSetting.AUTO -> ImageCapture.FLASH_MODE_AUTO
-            FlashSetting.ON -> ImageCapture.FLASH_MODE_ON
-            FlashSetting.TORCH -> ImageCapture.FLASH_MODE_OFF
+        withContext(Dispatchers.Main) {
+            capture.flashMode = when (config.flashMode) {
+                FlashSetting.OFF -> ImageCapture.FLASH_MODE_OFF
+                FlashSetting.AUTO -> ImageCapture.FLASH_MODE_AUTO
+                FlashSetting.ON -> ImageCapture.FLASH_MODE_ON
+                FlashSetting.TORCH -> ImageCapture.FLASH_MODE_OFF
+            }
+            activeCamera?.cameraControl?.enableTorch(config.flashMode == FlashSetting.TORCH)
         }
-        activeCamera?.cameraControl?.enableTorch(config.flashMode == FlashSetting.TORCH)
 
-        setExposure(config.exposure)
-        setFocus(config.focus)
-        setWhiteBalance(config.whiteBalance)
+        val exposureChanged = currentExposure != config.exposure ||
+            currentFocus != config.focus ||
+            currentWb != config.whiteBalance
+        currentExposure = config.exposure
+        currentFocus = config.focus
+        currentWb = config.whiteBalance
+
+        if (exposureChanged) {
+            withContext(Dispatchers.Main) {
+                runCatching { applyExposureCompensationIndex(config.exposure)?.await() }
+                runCatching { applyCamera2CaptureOptionsAsync()?.await() }
+            }
+            if (config.exposure.isAnyManual) {
+                delay(55L)
+            }
+        }
 
         val framesToCapture = when {
             config.bracketStops -> 3
@@ -162,11 +287,17 @@ class CameraX2Engine(
 
         var primaryBitmap: Bitmap? = null
         var successFrames = 0
-        val bracketOffsets = listOf(-2f, 0f, 2f)
+        val bracketOffsets = listOf(-1.7f, 0f, 1.7f)
 
         for (index in 0 until framesToCapture) {
             if (config.bracketStops) {
-                setExposure(config.exposure.copy(evCompensation = bracketOffsets[index]))
+                val bracketExp = config.exposure.copy(evCompensation = bracketOffsets[index])
+                currentExposure = bracketExp
+                withContext(Dispatchers.Main) {
+                    runCatching { applyExposureCompensationIndex(bracketExp)?.await() }
+                    runCatching { applyCamera2CaptureOptionsAsync()?.await() }
+                }
+                delay(75L)
             }
             val single = captureSingleBitmap(capture)
             if (single != null) {
@@ -178,7 +309,11 @@ class CameraX2Engine(
         }
 
         if (config.bracketStops) {
-            setExposure(config.exposure)
+            currentExposure = config.exposure
+            withContext(Dispatchers.Main) {
+                runCatching { applyExposureCompensationIndex(config.exposure)?.await() }
+                runCatching { applyCamera2CaptureOptionsAsync()?.await() }
+            }
         }
 
         return if (primaryBitmap != null) {
@@ -234,6 +369,9 @@ class CameraX2Engine(
 
     @SuppressLint("MissingPermission")
     override suspend fun startVideoRecord(config: VideoConfig) {
+        if (!videoModeEnabled || videoCaptureUseCase == null) {
+            setVideoModeEnabled(true)
+        }
         val videoCapture = videoCaptureUseCase ?: return
         if (activeRecording != null) return
 
@@ -281,15 +419,19 @@ class CameraX2Engine(
 
     override fun setExposure(exposure: ExposureConfig) {
         currentExposure = exposure
-        val cam = activeCamera ?: return
-        val state = cam.cameraInfo.exposureState
-        if (state.isExposureCompensationSupported && !exposure.manualMode) {
-            val step = state.exposureCompensationStep.toFloat().coerceAtLeast(0.1f)
-            val index = (exposure.evCompensation / step).roundToInt()
-                .coerceIn(state.exposureCompensationRange.lower, state.exposureCompensationRange.upper)
-            cam.cameraControl.setExposureCompensationIndex(index)
+        applyExposureCompensationIndex(exposure)
+        applyCamera2CaptureOptionsAsync()
+        val cur = _liveTelemetryFlow.value
+        val (resolvedIso, resolvedNs) = if (exposure.isAnyManual) {
+            exposure.resolveManualParameters(ambientMeteredIso, ambientMeteredExposureNs)
+        } else {
+            ambientMeteredIso to ambientMeteredExposureNs
         }
-        applyCamera2CaptureOptions()
+        _liveTelemetryFlow.value = cur.copy(
+            iso = resolvedIso,
+            shutterSeconds = resolvedNs / 1_000_000_000.0,
+            exposureDeltaEv = exposure.estimateExposureDeltaStops(ambientMeteredIso, ambientMeteredExposureNs),
+        )
     }
 
     override fun setFocus(focus: FocusConfig) {
@@ -301,26 +443,27 @@ class CameraX2Engine(
                 focus.normalizedTapX.coerceIn(0f, 1f),
                 focus.normalizedTapY.coerceIn(0f, 1f),
             )
-            val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
-                .build()
+            val action = FocusMeteringAction.Builder(
+                point,
+                FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
+            ).build()
             cam.cameraControl.startFocusAndMetering(action)
-        } else {
-            applyCamera2CaptureOptions()
         }
+        applyCamera2CaptureOptionsAsync()
     }
 
     override fun setWhiteBalance(wb: WhiteBalanceConfig) {
         currentWb = wb
-        applyCamera2CaptureOptions()
+        applyCamera2CaptureOptionsAsync()
     }
 
     override fun setZoomRatio(zoom: Float) {
+        pendingZoomRatio = zoom
         val cam = activeCamera ?: return
         val zoomState = cam.cameraInfo.zoomState.value
-        val clamped = zoom.coerceIn(
-            zoomState?.minZoomRatio ?: 1f,
-            zoomState?.maxZoomRatio ?: 8f,
-        )
+        val minZ = zoomState?.minZoomRatio ?: 1f
+        val maxZ = zoomState?.maxZoomRatio ?: 10f
+        val clamped = zoom.coerceIn(minZ, maxZ)
         cam.cameraControl.setZoomRatio(clamped)
     }
 
@@ -337,7 +480,7 @@ class CameraX2Engine(
         return CameraCapabilities(
             availableLenses = lenses,
             activeCameraId = activeSpec?.cameraId ?: activeCameraId,
-            isoRange = activeSpec?.isoRange ?: (100..6400),
+            isoRange = activeSpec?.isoRange ?: (50..12800),
             shutterNsRange = activeSpec?.exposureNsRange ?: (125_000L..30_000_000_000L),
             evRange = -2.0f..2.0f,
             maxFocusDiopters = (activeSpec?.minFocusDistanceDiopters ?: 10f).coerceAtLeast(1f),
@@ -357,45 +500,77 @@ class CameraX2Engine(
             .build()
     }
 
-    private fun applyCamera2CaptureOptions() {
-        val cam = activeCamera ?: return
-        val cam2Control = runCatching { Camera2CameraControl.from(cam.cameraControl) }.getOrNull() ?: return
+    private fun applyExposureCompensationIndex(exposure: ExposureConfig): ListenableFuture<Int>? {
+        val cam = activeCamera ?: return null
+        val state = cam.cameraInfo.exposureState
+        if (!state.isExposureCompensationSupported) return null
+        val targetEv = if (exposure.manualIso && exposure.manualShutter) 0f else exposure.evCompensation
+        val step = state.exposureCompensationStep.toFloat().coerceAtLeast(0.1f)
+        val index = (targetEv / step).roundToInt()
+            .coerceIn(state.exposureCompensationRange.lower, state.exposureCompensationRange.upper)
+        return cam.cameraControl.setExposureCompensationIndex(index)
+    }
+
+    private fun applyCamera2CaptureOptionsAsync(): ListenableFuture<Void>? {
+        val cam = activeCamera ?: return null
+        val cam2Control = runCatching { Camera2CameraControl.from(cam.cameraControl) }.getOrNull() ?: return null
         val caps = getCameraCapabilities()
+
+        val usesHardwareWbPreset = currentWb.mode != WhiteBalanceMode.AUTO &&
+            currentWb.mode != WhiteBalanceMode.MANUAL
+        val needsCustomRequest = currentExposure.isAnyManual ||
+            currentExposure.aeLocked ||
+            currentFocus.manualFocus ||
+            usesHardwareWbPreset ||
+            currentWb.awbLocked
+
+        // When in standard Auto AE + AF + AWB (or GPU-graded Manual Kelvin), clear all Camera2
+        // overrides so OEM CameraX 3A / Flash / HDR exposure runs at full native sensor brightness!
+        if (!needsCustomRequest) {
+            return cam2Control.clearCaptureRequestOptions()
+        }
 
         val optionsBuilder = CaptureRequestOptions.Builder()
 
-        // 1. Exposure (AE vs Manual ISO + Shutter ns)
-        if (currentExposure.manualMode) {
-            val iso = currentExposure.iso.coerceIn(caps.isoRange.first, caps.isoRange.last)
-            val ns = (currentExposure.shutterSeconds * 1_000_000_000.0).toLong()
-                .coerceIn(caps.shutterNsRange.first, caps.shutterNsRange.last)
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, ns)
-        } else {
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, currentExposure.aeLocked)
+        // 1. Exposure: Manual / Semi-Auto Reciprocity vs AE Lock
+        if (currentExposure.isAnyManual) {
+            val (resolvedIso, resolvedNs) = currentExposure.resolveManualParameters(
+                meteredIso = ambientMeteredIso,
+                meteredExposureNs = ambientMeteredExposureNs,
+                isoRange = caps.isoRange,
+                shutterNsRange = caps.shutterNsRange,
+            )
+            val frameDurationNs = maxOf(resolvedNs, 33_333_333L)
+            optionsBuilder.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_MODE,
+                CameraMetadata.CONTROL_AE_MODE_OFF,
+            )
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, resolvedIso)
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, resolvedNs)
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_FRAME_DURATION, frameDurationNs)
+        } else if (currentExposure.aeLocked) {
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
         }
 
-        // 2. Focus (AF Continuous Picture vs Manual Focus Diopter)
+        // 2. Focus: Manual Diopters vs Native Continuous/Tap AF
         if (currentFocus.manualFocus) {
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            optionsBuilder.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AF_MODE,
+                CameraMetadata.CONTROL_AF_MODE_OFF,
+            )
             optionsBuilder.setCaptureRequestOption(
                 CaptureRequest.LENS_FOCUS_DISTANCE,
                 currentFocus.focusDistanceDiopters.coerceIn(0f, caps.maxFocusDiopters),
             )
-        } else {
-            optionsBuilder.setCaptureRequestOption(
-                CaptureRequest.CONTROL_AF_MODE,
-                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
-            )
         }
 
-        // 3. White Balance (Auto, Scene Presets, or Manual Kelvin RGGB vector)
+        // 3. Hardware Scene AWB Presets (Factory-calibrated ISP CCM; Manual Kelvin uses GPU/CPU WB shift
+        //    so sensor channels are never starved without a custom ColorSpaceTransform)
         when (currentWb.mode) {
-            WhiteBalanceMode.AUTO -> {
-                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
-                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, currentWb.awbLocked)
+            WhiteBalanceMode.AUTO, WhiteBalanceMode.MANUAL -> {
+                if (currentWb.awbLocked) {
+                    optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+                }
             }
             WhiteBalanceMode.DAYLIGHT -> optionsBuilder.setCaptureRequestOption(
                 CaptureRequest.CONTROL_AWB_MODE,
@@ -417,33 +592,19 @@ class CameraX2Engine(
                 CaptureRequest.CONTROL_AWB_MODE,
                 CameraMetadata.CONTROL_AWB_MODE_SHADE,
             )
-            WhiteBalanceMode.MANUAL -> {
-                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF)
-                optionsBuilder.setCaptureRequestOption(
-                    CaptureRequest.COLOR_CORRECTION_MODE,
-                    CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX,
-                )
-                optionsBuilder.setCaptureRequestOption(
-                    CaptureRequest.COLOR_CORRECTION_GAINS,
-                    kelvinToRggbVector(currentWb.manualKelvin),
-                )
-            }
         }
 
-        cam2Control.setCaptureRequestOptions(optionsBuilder.build())
+        return cam2Control.setCaptureRequestOptions(optionsBuilder.build())
     }
 
     companion object {
-        /**
-         * Planckian locus approximation mapping color temperature (2500K..10000K) to Camera2 RGGB gains.
-         */
         fun kelvinToRggbVector(kelvin: Int): RggbChannelVector {
             val temp = (kelvin.coerceIn(2500, 10000)) / 100.0
-            val red = if (temp <= 66.0) 1.0 else (1.292936 * Math.pow(temp - 60.0, -0.13320476)).coerceIn(0.4, 2.5)
+            val red = if (temp <= 66.0) 1.0 else (1.292936 * (temp - 60.0).pow(-0.13320476)).coerceIn(0.4, 2.5)
             val green = if (temp <= 66.0) {
                 (0.39008158 * ln(temp) - 0.63184144).coerceIn(0.4, 2.5)
             } else {
-                (1.1298909 * Math.pow(temp - 60.0, -0.07551485)).coerceIn(0.4, 2.5)
+                (1.1298909 * (temp - 60.0).pow(-0.07551485)).coerceIn(0.4, 2.5)
             }
             val blue = when {
                 temp >= 66.0 -> 1.0

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import com.ophoto.FieldToCameraSetupCommand
 import com.ophoto.OphotoContainer
 import com.ophoto.core.permission.CameraPermissionHelper
+import com.ophoto.data.local.CompositionGuideType
+import com.ophoto.data.local.UserSettings
 import com.ophoto.data.repository.FieldAssistantCatalog
 import com.ophoto.data.repository.LightingSetupGuide
 import com.ophoto.data.repository.SceneCategory
@@ -68,30 +72,40 @@ import com.ophoto.domain.calculator.SensorFormatSpec
 import com.ophoto.service.MasterOverlayService
 import com.ophoto.ui.camera.CompositionOverlayCanvas
 import com.ophoto.ui.camera.TopHudChip
+import com.ophoto.ui.theme.BorderSubtle
 import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
 import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
+import com.ophoto.ui.theme.OphotoCard
+import com.ophoto.ui.theme.OphotoChip
+import com.ophoto.ui.theme.OphotoDivider
+import com.ophoto.ui.theme.OphotoMetricCell
 import com.ophoto.ui.theme.OphotoSection
+import com.ophoto.ui.theme.OphotoSegmentedBar
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.ShutterOrange
+import com.ophoto.ui.theme.SurfaceRecessed
+import com.ophoto.ui.theme.TextMuted
+import com.ophoto.ui.theme.TextOnAccent
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private enum class AssistantSubSection(val label: String) {
-    SHOT_CARDS("灵感镜头卡"),
-    LIGHTING_STUDIO("布光灯位图"),
-    CALCULATORS("现场计算器"),
-    CHECKLIST_GLOSSARY("清单与词典"),
+    SHOT_CARDS("镜头卡"),
+    LIGHTING_STUDIO("布光雷达"),
+    CALCULATORS("光学计算"),
+    CHECKLIST_GLOSSARY("清单词典"),
 }
 
 @Composable
@@ -110,25 +124,22 @@ fun AssistantScreen(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         OphotoSection(
-            title = "摄影现场助手 · Field HUD",
-            subtitle = "镜头灵感 · 俯视布光图 · 黄金时刻/景深/ND计算 · 出发清单与话术（全程离线）",
-            modifier = Modifier.fillMaxWidth(),
+            eyebrow = "ON-SITE FIELD HUD",
+            title = "摄影现场助手",
+            subtitle = "机位构图蓝图 · 极坐标灯位图 · 日出蓝调与景深计算",
         )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(AssistantSubSection.entries) { sec ->
-                TopHudChip(
-                    label = sec.label,
-                    active = activeSection == sec,
-                    onClick = { activeSection = sec },
-                )
-            }
-        }
+        OphotoSegmentedBar(
+            items = AssistantSubSection.entries,
+            selectedItem = activeSection,
+            labelSelector = { it.label },
+            onSelect = { activeSection = it },
+        )
 
         Spacer(Modifier.height(10.dp))
 
@@ -188,18 +199,17 @@ private fun ShotCardsWorkspace(
     Column(modifier = modifier.fillMaxSize()) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(SceneCategory.entries) { cat ->
-                TopHudChip(
+                OphotoChip(
                     label = cat.label,
-                    active = selectedScene == cat,
+                    selected = selectedScene == cat,
                     onClick = { onSelectScene(cat) },
                 )
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
         if (isExpandedDualPane) {
-            // Foldable unfolded dual-pane master-detail view!
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -218,7 +228,11 @@ private fun ShotCardsWorkspace(
                         )
                     }
                 }
-                Box(modifier = Modifier.weight(0.58f).fillMaxHeight()) {
+                Box(
+                    modifier = Modifier
+                        .weight(0.58f)
+                        .fillMaxHeight(),
+                ) {
                     ShotCardDetailPanel(
                         card = selectedCard,
                         container = container,
@@ -240,11 +254,24 @@ private fun ShotCardsWorkspace(
                     )
                 }
                 item {
-                    Text(
-                        text = "切换场景镜头卡（共 ${cards.size} 张）",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = BrassGold,
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "场景机位列表",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = BrassGold,
+                        )
+                        Text(
+                            text = "共 ${cards.size} 张灵感卡",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                        )
+                    }
                 }
                 items(cards, key = { it.id }) { card ->
                     ShotCardCompactItem(
@@ -264,15 +291,16 @@ private fun ShotCardCompactItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(13.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) BrassGold.copy(alpha = 0.16f) else InstrumentDeck)
+            .clip(shape)
+            .background(if (selected) BrassGold.copy(alpha = 0.14f) else InstrumentDeck, shape)
             .border(
                 1.dp,
                 if (selected) BrassGold else HairlineBorder,
-                RoundedCornerShape(12.dp),
+                shape,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -285,16 +313,22 @@ private fun ShotCardCompactItem(
                 style = MaterialTheme.typography.titleSmall,
                 color = if (selected) BrassGold else TextPrimary,
             )
+            Spacer(Modifier.height(2.dp))
             Text(
                 text = "${card.category.label} · ${card.distanceHint} · ${card.recommendedExposure}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
             )
         }
+        Spacer(Modifier.width(8.dp))
         Text(
             text = "${card.focalEquivalentMm}mm",
             style = MaterialTheme.typography.labelMedium,
-            color = OpticalEmerald,
+            color = if (selected) TextOnAccent else OpticalEmerald,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (selected) BrassGold else SurfaceRecessed)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
 }
@@ -306,28 +340,36 @@ private fun ShotCardDetailPanel(
     onApplyToCamera: () -> Unit,
 ) {
     val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(InstrumentDeck, RoundedCornerShape(16.dp))
-            .border(1.dp, BrassGold.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    OphotoCard(
+        borderColor = BrassGold.copy(alpha = 0.45f),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(
-                text = card.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = BrassGold,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = card.category.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OpticalEmerald,
+                )
+                Text(
+                    text = card.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary,
+                )
+            }
             Text(
                 text = "${card.focalEquivalentMm}mm · ${card.recommendedKelvin}K",
                 style = MaterialTheme.typography.labelMedium,
                 color = CyanTelemetry,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SurfaceRecessed)
+                    .border(0.7.dp, BorderSubtle, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
 
@@ -335,24 +377,25 @@ private fun ShotCardDetailPanel(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(148.dp)
+                .height(152.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0A0F18))
-                .border(1.dp, HairlineBorder, RoundedCornerShape(12.dp)),
+                .background(SurfaceRecessed)
+                .border(0.9.dp, HairlineBorder, RoundedCornerShape(12.dp)),
         ) {
             CompositionOverlayCanvas(
                 guideType = card.compositionGuide,
                 showLeveler = false,
                 rollDegrees = 0f,
                 focusTapNormalized = null,
+                showCornerBrackets = true,
             )
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val sx = card.subjectNormalizedX * size.width
                 val sy = card.subjectNormalizedY * size.height
-                // Light direction arrow
                 val rad = Math.toRadians(card.lightDirectionDeg.toDouble())
-                val lx = sx + (cos(rad) * 58.dp.toPx()).toFloat()
-                val ly = sy - (sin(rad) * 58.dp.toPx()).toFloat()
+                val lx = sx + (cos(rad) * 60.dp.toPx()).toFloat()
+                val ly = sy - (sin(rad) * 60.dp.toPx()).toFloat()
+
                 drawLine(
                     color = ShutterOrange,
                     start = Offset(lx, ly),
@@ -360,43 +403,74 @@ private fun ShotCardDetailPanel(
                     strokeWidth = 2.dp.toPx(),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f)),
                 )
-                drawCircle(ShutterOrange, radius = 5.dp.toPx(), center = Offset(lx, ly))
-                // Subject visual anchor silhouette
-                drawCircle(OpticalEmerald.copy(alpha = 0.25f), radius = 20.dp.toPx(), center = Offset(sx, sy))
-                drawCircle(OpticalEmerald, radius = 7.dp.toPx(), center = Offset(sx, sy))
+                drawCircle(ShutterOrange.copy(alpha = 0.28f), radius = 11.dp.toPx(), center = Offset(lx, ly))
+                drawCircle(ShutterOrange, radius = 4.5.dp.toPx(), center = Offset(lx, ly))
+
+                drawCircle(OpticalEmerald.copy(alpha = 0.22f), radius = 20.dp.toPx(), center = Offset(sx, sy))
+                drawCircle(OpticalEmerald, radius = 6.5.dp.toPx(), center = Offset(sx, sy))
             }
             Text(
-                text = "● 绿点：主体锚点   ● 橙虚线：主逆光方向 (${card.cameraHeightHint})",
+                text = "● 绿标：主体落位   ● 橙标：主逆光方向 (${card.cameraHeightHint})",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .background(Color(0xAD090A0D))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        }
-
-        Text(text = card.effectSummary, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
-
-        card.stepByStepTips.forEachIndexed { idx, step ->
-            Text(
-                text = "${idx + 1}. $step",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                    .background(Color(0xCC07080B))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             )
         }
 
         Text(
-            text = "💡 现场应急变通：${card.fieldWorkaround}",
+            text = card.effectSummary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextPrimary,
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            card.stepByStepTips.forEachIndexed { idx, step ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(BrassGold.copy(alpha = 0.18f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "${idx + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = BrassGold,
+                        )
+                    }
+                    Text(
+                        text = step,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        Text(
+            text = "现场变通锦囊：${card.fieldWorkaround}",
             style = MaterialTheme.typography.bodySmall,
             color = OpticalEmerald,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF12231E), RoundedCornerShape(10.dp))
-                .padding(8.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF10221C))
+                .border(0.7.dp, OpticalEmerald.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Button(
                 onClick = {
                     container.applyFieldCardToCamera(
@@ -407,12 +481,13 @@ private fun ShotCardDetailPanel(
                             kelvin = card.recommendedKelvin,
                             focalMmHint = card.focalEquivalentMm,
                             tipBanner = "${card.title} (${card.recommendedExposure})",
+                            applyManualWb = true,
                         ),
                     )
                     onApplyToCamera()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = ObsidianBg),
-                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = TextOnAccent),
+                shape = RoundedCornerShape(11.dp),
                 modifier = Modifier.weight(1f),
             ) {
                 Text("一键装载进相机开拍", fontWeight = FontWeight.Bold)
@@ -425,7 +500,11 @@ private fun ShotCardDetailPanel(
                         Toast.makeText(context, "请先在调色库开启悬浮窗权限", Toast.LENGTH_SHORT).show()
                     }
                 },
-                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = SurfaceRecessed,
+                    contentColor = BrassGold,
+                ),
+                shape = RoundedCornerShape(11.dp),
             ) {
                 Text("同步悬浮窗", color = BrassGold)
             }
@@ -451,9 +530,9 @@ private fun LightingDiagramsWorkspace(
             if (isExpandedDualPane) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     FieldAssistantCatalog.LIGHTING_GUIDES.forEach { guide ->
-                        TopHudChip(
+                        OphotoChip(
                             label = guide.title,
-                            active = guide.id == selectedGuide.id,
+                            selected = guide.id == selectedGuide.id,
                             onClick = { onSelectGuide(guide) },
                         )
                     }
@@ -461,9 +540,9 @@ private fun LightingDiagramsWorkspace(
             } else {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(FieldAssistantCatalog.LIGHTING_GUIDES, key = { it.id }) { guide ->
-                        TopHudChip(
+                        OphotoChip(
                             label = guide.title,
-                            active = guide.id == selectedGuide.id,
+                            selected = guide.id == selectedGuide.id,
                             onClick = { onSelectGuide(guide) },
                         )
                     }
@@ -472,23 +551,24 @@ private fun LightingDiagramsWorkspace(
         }
 
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(InstrumentDeck, RoundedCornerShape(16.dp))
-                    .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(selectedGuide.title, style = MaterialTheme.typography.titleMedium, color = BrassGold)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(selectedGuide.tag, style = MaterialTheme.typography.labelSmall, color = OpticalEmerald)
+                        Text(selectedGuide.title, style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    }
                     Text(
                         "${selectedGuide.lightRatio} · ${selectedGuide.recommendedFocal}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = OpticalEmerald,
+                        color = BrassGold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceRecessed)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }
 
@@ -496,17 +576,17 @@ private fun LightingDiagramsWorkspace(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(195.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0A0D14)),
+                        .height(206.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(SurfaceRecessed)
+                        .border(0.9.dp, HairlineBorder, RoundedCornerShape(13.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val cx = size.width * 0.5f
-                        val cy = size.height * 0.5f
-                        val maxR = (minOf(size.width, size.height) * 0.42f)
+                        val cy = size.height * 0.48f
+                        val maxR = minOf(size.width, size.height) * 0.41f
 
-                        // Concentric optical distance rings
                         for (ring in 1..3) {
                             drawCircle(
                                 color = Color.White.copy(alpha = 0.08f),
@@ -515,7 +595,21 @@ private fun LightingDiagramsWorkspace(
                                 style = Stroke(1.dp.toPx()),
                             )
                         }
-                        // Camera optical axis (bottom 6 o'clock pointing up to subject)
+                        // Polar crosshairs
+                        drawLine(
+                            Color.White.copy(alpha = 0.06f),
+                            Offset(cx - maxR, cy),
+                            Offset(cx + maxR, cy),
+                            1.dp.toPx(),
+                        )
+                        drawLine(
+                            Color.White.copy(alpha = 0.06f),
+                            Offset(cx, cy - maxR),
+                            Offset(cx, cy + maxR),
+                            1.dp.toPx(),
+                        )
+
+                        // Camera optical axis at 6 o'clock
                         val camY = cy + maxR * 0.92f
                         drawLine(
                             color = BrassGold.copy(alpha = 0.45f),
@@ -526,42 +620,63 @@ private fun LightingDiagramsWorkspace(
                         )
                         drawCircle(BrassGold, radius = 6.dp.toPx(), center = Offset(cx, camY))
 
-                        // Subject head/shoulders at center
-                        drawCircle(Color.White, radius = 9.dp.toPx(), center = Offset(cx, cy))
-
-                        // Light nodes
+                        // Light cones & nodes
                         selectedGuide.nodes.forEach { node ->
-                            val rad = Math.toRadians((90.0 - node.angleDegFromCamera))
-                            val lx = cx + (sin(Math.toRadians(node.angleDegFromCamera.toDouble())) * maxR * node.radiusRatio).toFloat()
-                            val ly = cy + (cos(Math.toRadians(node.angleDegFromCamera.toDouble())) * maxR * node.radiusRatio).toFloat()
+                            val rad = Math.toRadians(node.angleDegFromCamera.toDouble())
+                            val lx = cx + (sin(rad) * maxR * node.radiusRatio).toFloat()
+                            val ly = cy + (cos(rad) * maxR * node.radiusRatio).toFloat()
                             val col = Color(node.role.colorHex)
-                            drawLine(col.copy(alpha = 0.55f), Offset(lx, ly), Offset(cx, cy), strokeWidth = 2.2.dp.toPx())
+
+                            val perpX = -cos(rad).toFloat() * 14.dp.toPx()
+                            val perpY = sin(rad).toFloat() * 14.dp.toPx()
+                            val cone = Path().apply {
+                                moveTo(lx, ly)
+                                lineTo(cx + perpX, cy + perpY)
+                                lineTo(cx - perpX, cy - perpY)
+                                close()
+                            }
+                            drawPath(cone, col.copy(alpha = 0.14f))
+                            drawLine(col.copy(alpha = 0.65f), Offset(lx, ly), Offset(cx, cy), strokeWidth = 2.dp.toPx())
                             drawCircle(col, radius = 7.dp.toPx(), center = Offset(lx, ly))
-                            val _unused = rad
                         }
+
+                        // Subject at center
+                        drawCircle(Color.White.copy(alpha = 0.22f), radius = 14.dp.toPx(), center = Offset(cx, cy))
+                        drawCircle(Color.White, radius = 8.dp.toPx(), center = Offset(cx, cy))
                     }
                     Text(
-                        text = "俯视灯位图（底部金点 = 相机机位，中心白点 = 被摄主体）",
+                        text = "俯视灯位雷达（底部黄铜点 = 相机机位 · 中心白点 = 主体）",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(6.dp),
+                        color = TextMuted,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(6.dp),
                     )
                 }
 
-                selectedGuide.nodes.forEach { node ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    selectedGuide.nodes.forEach { node ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .size(9.dp)
-                                .clip(CircleShape)
-                                .background(Color(node.role.colorHex)),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "${node.role.label}（${node.angleDegFromCamera.roundToInt()}°）：${node.powerNote}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary,
-                        )
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(SurfaceRecessed)
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(node.role.colorHex)),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "${node.role.label} (${node.angleDegFromCamera.roundToInt()}°) · ${node.powerNote}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimary,
+                            )
+                        }
                     }
                 }
 
@@ -574,16 +689,18 @@ private fun LightingDiagramsWorkspace(
                         container.applyFieldCardToCamera(
                             FieldToCameraSetupCommand(
                                 presetId = selectedGuide.linkedPresetId,
-                                compositionGuide = com.ophoto.data.local.CompositionGuideType.RULE_OF_THIRDS,
+                                compositionGuide = CompositionGuideType.RULE_OF_THIRDS,
                                 evOffset = -0.2f,
                                 kelvin = 5400,
                                 focalMmHint = 50,
                                 tipBanner = "${selectedGuide.title} · ${selectedGuide.lightRatio}",
+                                applyManualWb = false,
                             ),
                         )
                         onApplyToCamera()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = ObsidianBg),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = TextOnAccent),
+                    shape = RoundedCornerShape(11.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("匹配该布光预设进入拍摄", fontWeight = FontWeight.Bold)
@@ -599,7 +716,7 @@ private fun FieldCalculatorsWorkspace(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    val settings by container.preferences.settingsFlow.collectAsState(initial = com.ophoto.data.local.UserSettings())
+    val settings by container.preferences.settingsFlow.collectAsState(initial = UserSettings())
 
     val activeCity = remember(settings.selectedCityId) {
         CityLocationPreset.PRESETS.firstOrNull { it.id == settings.selectedCityId }
@@ -618,7 +735,6 @@ private fun FieldCalculatorsWorkspace(
     }
     val moonReport = remember(targetDate) { FieldCalculators.calculateMoonReport(targetDate) }
 
-    // DoF & Equivalent Lens states
     var sensorSpec by remember { mutableStateOf(SensorFormatSpec.PHONE_1_14) }
     var focalMm by remember { mutableFloatStateOf(23f) }
     var apertureF by remember { mutableFloatStateOf(1.8f) }
@@ -630,7 +746,6 @@ private fun FieldCalculatorsWorkspace(
         FieldCalculators.calculateEquivalentLens((focalMm / sensorSpec.cropFactor), sensorSpec)
     }
 
-    // ND Long Exposure & Bulb Timer states
     var baseShutterIdx by remember { mutableIntStateOf(4) }
     val baseShutterChoices = listOf(1.0 / 1000, 1.0 / 500, 1.0 / 250, 1.0 / 125, 1.0 / 60, 1.0 / 15, 0.25, 1.0)
     var selectedNd by remember { mutableStateOf(NdFilterSpec.ND1000) }
@@ -650,14 +765,14 @@ private fun FieldCalculatorsWorkspace(
         contentPadding = PaddingValues(bottom = 28.dp),
         modifier = modifier.fillMaxSize(),
     ) {
-        // 1. Golden Hour / Blue Hour & Lunar Astro Card
         item {
-            CalculatorCard("① 黄金时刻 · 蓝调时刻 · 月相星野（${activeCity.name}）") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("黄金时刻 · 蓝调时刻 · 月相 (${activeCity.name})", style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(CityLocationPreset.PRESETS) { city ->
-                        TopHudChip(
+                        OphotoChip(
                             label = city.name.substringBefore(" ·"),
-                            active = city.id == activeCity.id,
+                            selected = city.id == activeCity.id,
                             onClick = {
                                 scope.launch { container.preferences.update { it.copy(selectedCityId = city.id) } }
                             },
@@ -667,48 +782,56 @@ private fun FieldCalculatorsWorkspace(
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     TopHudChip("◀ 前一天", false) { dayOffset -= 1 }
-                    Text("${sunSchedule.date} · 正午高度角 ${sunSchedule.maxElevationDeg}°", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+                    Text(
+                        "${sunSchedule.date} · 正午高度角 ${sunSchedule.maxElevationDeg}°",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextPrimary,
+                    )
                     TopHudChip("后一天 ▶", false) { dayOffset += 1 }
                 }
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    TimeSlotBadge("晨间蓝调", sunSchedule.morningBlueStart, CyanTelemetry)
-                    TimeSlotBadge("日出时刻", sunSchedule.sunrise, BrassGold)
-                    TimeSlotBadge("傍晚黄金光", "${sunSchedule.eveningGoldenStart}-${sunSchedule.sunset}", ShutterOrange)
-                    TimeSlotBadge("晚间蓝调", "${sunSchedule.sunset}-${sunSchedule.eveningBlueEnd}", CyanTelemetry)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OphotoMetricCell("晨间蓝调", sunSchedule.morningBlueStart, CyanTelemetry, Modifier.weight(1f))
+                    OphotoMetricCell("日出时刻", sunSchedule.sunrise, BrassGold, Modifier.weight(1f))
+                    OphotoMetricCell("暮色黄金", sunSchedule.eveningGoldenStart, ShutterOrange, Modifier.weight(1f))
+                    OphotoMetricCell("晚间蓝调", sunSchedule.eveningBlueEnd, CyanTelemetry, Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(6.dp))
                 Text(sunSchedule.lightingAdvice, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Spacer(Modifier.height(6.dp))
+                OphotoDivider()
                 Text(
-                    text = "🌙 月相：${moonReport.phaseName}（照明 ${moonReport.illuminationPercent}% · 月龄 ${moonReport.ageDays}天） ${moonReport.astroRating}\n${moonReport.nightShootAdvice}",
+                    text = "月相：${moonReport.phaseName}（照明 ${moonReport.illuminationPercent}% · 月龄 ${moonReport.ageDays}天） ${moonReport.astroRating}\n${moonReport.nightShootAdvice}",
                     style = MaterialTheme.typography.bodySmall,
                     color = OpticalEmerald,
                 )
             }
         }
 
-        // 2. Optical Depth of Field + Sensor Crop Equivalent Calculator
         item {
-            CalculatorCard("② 景深 DoF · 超焦距 · 画幅等效视场角") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("景深 DoF · 超焦距 · 等效视场角", style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(SensorFormatSpec.entries) { spec ->
-                        TopHudChip(
+                        OphotoChip(
                             label = spec.label,
-                            active = sensorSpec == spec,
+                            selected = sensorSpec == spec,
                             onClick = { sensorSpec = spec },
                         )
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("物理/模拟焦距 ${focalMm.roundToInt()}mm · 光圈 f/${"%.1f".format(apertureF)} · 物距 ${"%.1f".format(subjectDistM)}m", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+                Text(
+                    String.format(Locale.US, "等效焦距 %dmm · 光圈 f/%.1f · 物距 %.1fm", focalMm.roundToInt(), apertureF, subjectDistM),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextPrimary,
+                )
                 Slider(
                     value = focalMm,
                     onValueChange = { focalMm = it },
-                    valueRange = 5f..135f,
+                    valueRange = 14f..135f,
                     colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
                 )
                 Slider(
@@ -717,30 +840,48 @@ private fun FieldCalculatorsWorkspace(
                     valueRange = 0.4f..20f,
                     colors = SliderDefaults.colors(thumbColor = OpticalEmerald, activeTrackColor = OpticalEmerald),
                 )
-                val farText = if (dofResult.farLimitMeters.isInfinite()) "∞ 无穷远" else "${"%.2f".format(dofResult.farLimitMeters)}m"
-                Text(
-                    text = "超焦距：${"%.2f".format(dofResult.hyperfocalMeters)}m  |  清晰范围：${"%.2f".format(dofResult.nearLimitMeters)}m ~ $farText\n视角 FOV：对角 ${eqResult.diagonalFovDeg}° · 水平 ${eqResult.horizontalFovDeg}°（转换系数 ${eqResult.cropFactor}x）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextPrimary,
-                )
-                Text(dofResult.summaryTip, style = MaterialTheme.typography.bodySmall, color = OpticalEmerald)
+                val farText = if (dofResult.farLimitMeters.isInfinite()) {
+                    "∞"
+                } else {
+                    String.format(Locale.US, "%.2fm", dofResult.farLimitMeters)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    OphotoMetricCell(
+                        "超焦距",
+                        String.format(Locale.US, "%.2fm", dofResult.hyperfocalMeters),
+                        BrassGold,
+                        Modifier.weight(1f),
+                    )
+                    OphotoMetricCell(
+                        "前景清晰",
+                        String.format(Locale.US, "%.2fm", dofResult.nearLimitMeters),
+                        OpticalEmerald,
+                        Modifier.weight(1f),
+                    )
+                    OphotoMetricCell("远景清晰", farText, OpticalEmerald, Modifier.weight(1f))
+                    OphotoMetricCell("对角视角", "${eqResult.diagonalFovDeg}°", CyanTelemetry, Modifier.weight(1f))
+                }
+                Text(dofResult.summaryTip, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
         }
 
-        // 3. ND Filter Long Exposure + Bulb Countdown Timer
         item {
-            CalculatorCard("③ ND 减光镜长曝光换算 & 现场 B 门计时器") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ND 减光镜慢门换算 & B 门倒计时", style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(NdFilterSpec.entries) { nd ->
-                        TopHudChip(
+                        OphotoChip(
                             label = nd.label,
-                            active = selectedNd == nd,
+                            selected = selectedNd == nd,
                             onClick = { selectedNd = nd },
                         )
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("未装滤镜基准快门：${ndResult.baseShutterText}", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                Text(
+                    "未装滤镜基准快门：${ndResult.baseShutterText}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                )
                 Slider(
                     value = baseShutterIdx.toFloat(),
                     onValueChange = { baseShutterIdx = it.roundToInt().coerceIn(0, baseShutterChoices.lastIndex) },
@@ -750,21 +891,32 @@ private fun FieldCalculatorsWorkspace(
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(SurfaceRecessed)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
-                    Text(
-                        text = "加装后目标曝光：${ndResult.targetShutterText} (×${ndResult.stopMultiplier})",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = BrassGold,
-                    )
+                    Column {
+                        Text("加装后目标曝光", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                        Text(
+                            text = "${ndResult.targetShutterText}  (×${ndResult.stopMultiplier})",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = BrassGold,
+                        )
+                    }
                     if (ndResult.targetShutterSeconds >= 1.0) {
                         Button(
                             onClick = {
                                 bulbRemainingSec = if (bulbRemainingSec > 0) 0 else ndResult.targetShutterSeconds.roundToInt()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = ShutterOrange),
+                            colors = ButtonDefaults.buttonColors(containerColor = ShutterOrange, contentColor = TextPrimary),
+                            shape = RoundedCornerShape(10.dp),
                         ) {
-                            Text(if (bulbRemainingSec > 0) "倒计时 ${bulbRemainingSec}s" else "启动 B 门计时")
+                            Text(
+                                text = if (bulbRemainingSec > 0) "倒计时 ${bulbRemainingSec}s" else "启动 B 门计时",
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
                 }
@@ -789,22 +941,23 @@ private fun ChecklistAndGlossaryWorkspace(
         contentPadding = PaddingValues(bottom = 28.dp),
         modifier = modifier.fillMaxSize(),
     ) {
-        // Daily Practice Challenge Card
         item {
-            CalculatorCard("🎯 每日拍摄灵感抽题") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("每日街头光影挑战", style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 Text(activeChallenge, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
-                Spacer(Modifier.height(6.dp))
                 OutlinedButton(
                     onClick = { activeChallenge = FieldAssistantCatalog.DAILY_CHALLENGES.random() },
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = SurfaceRecessed, contentColor = BrassGold),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
                     Text("换一题现场挑战", color = BrassGold)
                 }
             }
         }
 
-        // Pre-shoot Checklists & Model Icebreaker Talk Lines
         items(FieldAssistantCatalog.CHECKLIST_TEMPLATES, key = { it.id }) { tpl ->
-            CalculatorCard("📋 ${tpl.sceneName}") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tpl.sceneName, style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 Text(tpl.subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 (tpl.gearItems + tpl.cameraSetupItems).forEachIndexed { idx, line ->
                     val key = "${tpl.id}_$idx"
@@ -813,6 +966,7 @@ private fun ChecklistAndGlossaryWorkspace(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 scope.launch {
                                     container.mediaRepository.toggleFieldItem(key, "checklist", checked)
@@ -826,16 +980,20 @@ private fun ChecklistAndGlossaryWorkspace(
                                     container.mediaRepository.toggleFieldItem(key, "checklist", checked)
                                 }
                             },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = BrassGold,
+                                checkmarkColor = TextOnAccent,
+                            ),
                         )
                         Text(
                             text = line,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (checked) TextSecondary else TextPrimary,
+                            color = if (checked) TextMuted else TextPrimary,
                         )
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                Text("🗣 拍摄现场引导话术（点击复制）：", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+                OphotoDivider()
+                Text("拍摄现场引导话术（点击复制）", style = MaterialTheme.typography.labelMedium, color = BrassGold)
                 tpl.icebreakerTalkLines.forEach { talk ->
                     Text(
                         text = talk,
@@ -843,37 +1001,43 @@ private fun ChecklistAndGlossaryWorkspace(
                         color = OpticalEmerald,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ControlPillBg)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(SurfaceRecessed)
+                            .border(0.6.dp, BorderSubtle, RoundedCornerShape(9.dp))
                             .clickable {
                                 val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                 cb?.setPrimaryClip(ClipData.newPlainText("Talk Line", talk))
                                 Toast.makeText(context, "已复制引导话术", Toast.LENGTH_SHORT).show()
                             }
-                            .padding(8.dp),
+                            .padding(10.dp),
                     )
                 }
             }
         }
 
-        // Interactive Photography Visual Glossary
         item {
-            CalculatorCard("📖 交互式摄影光学词典") {
+            OphotoCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("交互式摄影光学词典", style = MaterialTheme.typography.titleMedium, color = BrassGold)
                 Slider(
                     value = termDemoSlider,
                     onValueChange = { termDemoSlider = it },
-                    colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
+                    colors = SliderDefaults.colors(
+                        thumbColor = BrassGold,
+                        activeTrackColor = BrassGold,
+                        inactiveTrackColor = ControlPillBg,
+                    ),
                 )
                 FieldAssistantCatalog.VISUAL_GLOSSARY.forEach { entry ->
                     Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 5.dp)
-                            .background(ControlPillBg, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SurfaceRecessed)
+                            .border(0.6.dp, BorderSubtle, RoundedCornerShape(10.dp))
                             .padding(10.dp),
                     ) {
-                        Text("${entry.term} (${entry.englishTag})", style = MaterialTheme.typography.titleSmall, color = BrassGold)
+                        Text("${entry.term} · ${entry.englishTag}", style = MaterialTheme.typography.titleSmall, color = BrassGold)
                         Text(entry.coreFormulaOrRule, style = MaterialTheme.typography.labelSmall, color = CyanTelemetry)
                         Text(entry.interactiveHint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                         Text(
@@ -885,37 +1049,5 @@ private fun ChecklistAndGlossaryWorkspace(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CalculatorCard(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(InstrumentDeck, RoundedCornerShape(16.dp))
-            .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = BrassGold)
-        Spacer(Modifier.height(4.dp))
-        content()
-    }
-}
-
-@Composable
-private fun TimeSlotBadge(label: String, timeText: String, color: Color) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .background(ControlPillBg, RoundedCornerShape(8.dp))
-            .padding(horizontal = 7.dp, vertical = 5.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-        Text(timeText, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
     }
 }

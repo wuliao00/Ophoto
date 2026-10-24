@@ -5,13 +5,18 @@ import androidx.camera.core.Preview
 import androidx.lifecycle.LifecycleOwner
 import com.ophoto.core.device.PhysicalLensSpec
 import com.ophoto.engine.filter.FilterConfig
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.ln
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 enum class CameraCaptureMode(val label: String) {
     PHOTO("拍照"),
-    VIDEO("视频"),
     PORTRAIT("人像"),
     NIGHT("夜景"),
     PRO("专业"),
+    VIDEO("视频"),
     LONG_EXPOSURE("长曝光"),
     DOCUMENT("文档"),
 }
@@ -19,33 +24,41 @@ enum class CameraCaptureMode(val label: String) {
 enum class FlashSetting(val label: String) {
     OFF("关闭"),
     AUTO("自动"),
-    ON("常亮/补光"),
-    TORCH("手电筒"),
+    ON("补光"),
+    TORCH("常亮"),
 }
 
-enum class ViewfinderAspectRatio(val label: String, val ratioValue: Float) {
-    RATIO_4_3("4:3", 4f / 3f),
-    RATIO_3_2("3:2", 3f / 2f),
-    RATIO_16_9("16:9", 16f / 9f),
-    RATIO_1_1("1:1", 1f),
-    RATIO_21_9("21:9", 21f / 9f),
+/**
+ * Viewfinder aspect ratios with accurate [portraitRatio] (width / height in handheld portrait orientation)
+ * plus [ratioValue] preserved for compatibility.
+ */
+enum class ViewfinderAspectRatio(
+    val label: String,
+    val portraitRatio: Float,
+    val ratioValue: Float,
+) {
+    RATIO_4_3("4:3", 3f / 4f, 4f / 3f),
+    RATIO_3_2("3:2", 2f / 3f, 3f / 2f),
+    RATIO_1_1("1:1", 1f, 1f),
+    RATIO_16_9("16:9", 9f / 16f, 16f / 9f),
+    RATIO_21_9("XPan", 65f / 24f, 65f / 24f),
 }
 
 enum class MeteringMode(val label: String) {
-    MATRIX("全局测光"),
+    MATRIX("矩阵测光"),
     CENTER_WEIGHTED("中央重点"),
     SPOT("点测光"),
-    FACE_PRIORITY("人像优先"),
+    FACE_PRIORITY("人像测光"),
 }
 
 enum class WhiteBalanceMode(val label: String, val approximateKelvin: Int) {
-    AUTO("AWB 自动", 5500),
+    AUTO("AWB", 5500),
     DAYLIGHT("日光", 5200),
     CLOUDY("阴天", 6500),
-    INCANDESCENT("白炽灯", 2850),
+    INCANDESCENT("钨丝灯", 3000),
     FLUORESCENT("荧光灯", 4000),
-    SHADE("阴影", 7500),
-    MANUAL("手动色温", 5500),
+    SHADE("阴影", 7200),
+    MANUAL("手动 K", 5500),
 }
 
 enum class CaptureFormatOption(val label: String) {
@@ -53,14 +66,90 @@ enum class CaptureFormatOption(val label: String) {
     RAW_PLUS_JPEG("RAW + JPEG"),
 }
 
+/**
+ * Pro exposure configuration supporting:
+ * - Full Auto AE (default in Pro & Photo modes so viewfinder is always properly exposed)
+ * - Semi-Auto ISO Priority ([manualIso] = true, [manualShutter] = false)
+ * - Semi-Auto Shutter Priority ([manualIso] = false, [manualShutter] = true)
+ * - Full Manual M ([manualIso] = true && [manualShutter] = true, or legacy [manualMode] = true)
+ */
 data class ExposureConfig(
     val manualMode: Boolean = false,
-    val iso: Int = 100,
-    val shutterSeconds: Double = 1.0 / 125.0,
+    val manualIso: Boolean = false,
+    val manualShutter: Boolean = false,
+    val iso: Int = 200,
+    val shutterSeconds: Double = 1.0 / 60.0,
     val evCompensation: Float = 0f,
     val aeLocked: Boolean = false,
     val meteringMode: MeteringMode = MeteringMode.CENTER_WEIGHTED,
-)
+) {
+    val isIsoManualEffective: Boolean
+        get() = manualIso || (manualMode && !manualShutter)
+
+    val isShutterManualEffective: Boolean
+        get() = manualShutter || (manualMode && !manualIso)
+
+    val isAnyManual: Boolean
+        get() = manualMode || manualIso || manualShutter
+
+    /**
+     * Resolves hardware (ISO, ShutterNs) using real ambient AE metering so changing ISO alone
+     * or Shutter alone automatically compensates the paired axis via exposure reciprocity.
+     */
+    fun resolveManualParameters(
+        meteredIso: Int,
+        meteredExposureNs: Long,
+        isoRange: IntRange = 50..12800,
+        shutterNsRange: LongRange = 125_000L..30_000_000_000L,
+    ): Pair<Int, Long> {
+        val safeAmbIso = meteredIso.coerceIn(50, 25600)
+        val safeAmbNs = meteredExposureNs.coerceIn(100_000L, 1_000_000_000L)
+        val evFactor = 2.0.pow(evCompensation.toDouble())
+        val targetProductNs = safeAmbIso.toDouble() * safeAmbNs.toDouble() * evFactor
+
+        val fullManual = (manualIso && manualShutter) || (manualMode && !manualIso && !manualShutter)
+        return when {
+            fullManual -> {
+                val outIso = iso.coerceIn(isoRange.first, isoRange.last)
+                val outNs = (shutterSeconds * 1_000_000_000.0).toLong()
+                    .coerceIn(shutterNsRange.first, shutterNsRange.last)
+                outIso to outNs
+            }
+            manualIso -> {
+                val outIso = iso.coerceIn(isoRange.first, isoRange.last)
+                val maxAutoHandheldNs = minOf(shutterNsRange.last, 125_000_000L) // 1/8s ceiling
+                val solvedNs = (targetProductNs / outIso.coerceAtLeast(1)).toLong()
+                    .coerceIn(shutterNsRange.first, maxAutoHandheldNs)
+                outIso to solvedNs
+            }
+            manualShutter -> {
+                val outNs = (shutterSeconds * 1_000_000_000.0).toLong()
+                    .coerceIn(shutterNsRange.first, shutterNsRange.last)
+                val solvedIso = (targetProductNs / outNs.coerceAtLeast(1_000L))
+                    .roundToInt()
+                    .coerceIn(isoRange.first, isoRange.last)
+                solvedIso to outNs
+            }
+            else -> {
+                safeAmbIso.coerceIn(isoRange.first, isoRange.last) to
+                    safeAmbNs.coerceIn(shutterNsRange.first, shutterNsRange.last)
+            }
+        }
+    }
+
+    /**
+     * Estimates EV stop difference relative to metered ambient light (negative = underexposed).
+     */
+    fun estimateExposureDeltaStops(meteredIso: Int, meteredExposureNs: Long): Float {
+        if (!isAnyManual) return evCompensation
+        val ambProduct = meteredIso.coerceAtLeast(50).toDouble() *
+            meteredExposureNs.coerceAtLeast(100_000L).toDouble()
+        val (effIso, effNs) = resolveManualParameters(meteredIso, meteredExposureNs)
+        val effProduct = effIso.toDouble() * effNs.toDouble()
+        if (ambProduct <= 0.0 || effProduct <= 0.0) return 0f
+        return (ln(effProduct / ambProduct) / ln(2.0)).toFloat().coerceIn(-8f, 8f)
+    }
+}
 
 data class FocusConfig(
     val manualFocus: Boolean = false,
@@ -76,9 +165,16 @@ data class WhiteBalanceConfig(
     val awbLocked: Boolean = false,
 )
 
-/**
- * CaptureConfig per Doc §5.
- */
+data class CameraLiveTelemetry(
+    val iso: Int = 200,
+    val shutterSeconds: Double = 1.0 / 60.0,
+    val aperture: Float = 1.8f,
+    val focusDiopters: Float = 0f,
+    val ambientIso: Int = 200,
+    val ambientExposureNs: Long = 20_000_000L,
+    val exposureDeltaEv: Float = 0f,
+)
+
 data class CaptureConfig(
     val mode: CameraCaptureMode = CameraCaptureMode.PHOTO,
     val flashMode: FlashSetting = FlashSetting.OFF,
@@ -127,15 +223,16 @@ data class VideoResult(
     val errorMessage: String? = null,
 )
 
-/**
- * Standard Camera Engine contract per Doc §5.
- */
 interface ICameraEngine {
+    val liveTelemetryFlow: StateFlow<CameraLiveTelemetry>
+        get() = MutableStateFlow(CameraLiveTelemetry())
+
     suspend fun bindSession(
         lifecycleOwner: LifecycleOwner,
         surfaceProvider: Preview.SurfaceProvider,
         cameraId: String,
     )
+    suspend fun setVideoModeEnabled(enabled: Boolean) {}
     suspend fun openCamera(cameraId: String)
     suspend fun closeCamera()
     suspend fun takePhoto(config: CaptureConfig): PhotoResult

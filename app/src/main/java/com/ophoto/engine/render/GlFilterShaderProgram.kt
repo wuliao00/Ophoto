@@ -3,8 +3,8 @@ package com.ophoto.engine.render
 import android.opengl.GLES11Ext
 import android.opengl.GLES30
 import com.ophoto.engine.filter.CubeLut3D
-import com.ophoto.engine.filter.FilterParams
 import com.ophoto.engine.filter.FilterEngineImpl
+import com.ophoto.engine.filter.FilterParams
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -18,9 +18,10 @@ enum class FocusPeakingColor(val label: String, val rgb: FloatArray) {
 }
 
 /**
- * OpenGL ES 3.0 GPU Shader Pipeline (Doc §6):
- * Executes zero-copy external OES camera sampling, 3D LUT hardware trilinear lookup (`sampler3D`),
- * split-toning, vignette, grain, Sobel focus peaking, and diagonal zebra stripes at 60fps.
+ * OpenGL ES 3.0 GPU Shader Pipeline:
+ * Executes zero-copy external OES camera sampling, distortion-free aspect-ratio center-crop,
+ * optical Kelvin white balance, shadow/highlight recovery, 3D LUT hardware trilinear lookup,
+ * split-toning, vignette, grain, Sobel focus peaking, and 96% highlight zebra stripes at 60fps.
  */
 class GlFilterShaderProgram {
 
@@ -48,12 +49,15 @@ class GlFilterShaderProgram {
         }
 
     fun initialize() {
+        hasValidLut = false
         val vertexShader = compileShader(GLES30.GL_VERTEX_SHADER, VERTEX_SHADER_GLSL)
         val fragmentShader = compileShader(GLES30.GL_FRAGMENT_SHADER, FRAGMENT_SHADER_GLSL)
         programId = GLES30.glCreateProgram()
         GLES30.glAttachShader(programId, vertexShader)
         GLES30.glAttachShader(programId, fragmentShader)
         GLES30.glLinkProgram(programId)
+        GLES30.glDeleteShader(vertexShader)
+        GLES30.glDeleteShader(fragmentShader)
 
         val texHandles = IntArray(1)
         GLES30.glGenTextures(1, texHandles, 0)
@@ -103,11 +107,16 @@ class GlFilterShaderProgram {
         peakingSensitivity: Float,
         enableZebra: Boolean,
         frameTimeSec: Float,
+        cropScaleX: Float = 1f,
+        cropScaleY: Float = 1f,
+        proKelvinWarmth: Float = 0f,
     ) {
         if (programId == 0) return
         GLES30.glViewport(0, 0, viewportWidth, viewportHeight)
         GLES30.glUseProgram(programId)
 
+        quadCoords.position(0)
+        texCoords.position(0)
         val posLoc = GLES30.glGetAttribLocation(programId, "aPosition")
         val texLoc = GLES30.glGetAttribLocation(programId, "aTexCoord")
         GLES30.glEnableVertexAttribArray(posLoc)
@@ -117,14 +126,23 @@ class GlFilterShaderProgram {
 
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(programId, "uTexMatrix"), 1, false, texMatrix, 0)
         GLES30.glUniform2f(
+            GLES30.glGetUniformLocation(programId, "uCropScale"),
+            cropScaleX.coerceIn(0.1f, 1f),
+            cropScaleY.coerceIn(0.1f, 1f),
+        )
+        GLES30.glUniform2f(
             GLES30.glGetUniformLocation(programId, "uTexelSize"),
             1f / viewportWidth.coerceAtLeast(1),
             1f / viewportHeight.coerceAtLeast(1),
         )
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uProWarmth"), proKelvinWarmth.coerceIn(-0.35f, 0.35f))
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uStrength"), strength.coerceIn(0f, 1f))
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uExposureEv"), params.exposureEv)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uContrast"), 1f + params.contrast / 100f * 0.65f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uSaturation"), (1f + params.saturation / 100f).coerceAtLeast(0f))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uShadows"), params.shadows / 100f * 0.25f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uHighlights"), params.highlights / 100f * 0.25f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uWhiteGain"), 1f + params.whites / 100f * 0.12f)
         GLES30.glUniform2f(
             GLES30.glGetUniformLocation(programId, "uWbShift"),
             params.temperature / 100f * 0.14f,
@@ -136,9 +154,13 @@ class GlFilterShaderProgram {
         GLES30.glUniform3fv(GLES30.glGetUniformLocation(programId, "uHighlightTint"), 1, hiRgb, 0)
         GLES30.glUniform3fv(GLES30.glGetUniformLocation(programId, "uShadowTint"), 1, shRgb, 0)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uCastMix"), params.colorCastStrength / 100f)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uVignette"), params.vignette / 100f * 0.62f)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrain"), params.grainStrength / 100f * 0.08f)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uFade"), params.fade / 100f * 0.11f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uVignette"), params.vignette / 100f * 0.55f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrain"), params.grainStrength / 100f * 0.075f)
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uFade"),
+            (params.fade / 100f * 0.11f + params.blacks / 100f * 0.08f).coerceIn(-0.12f, 0.20f),
+        )
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uSoftGlow"), params.softGlow / 100f * 0.22f)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uMonochrome"), if (params.monochrome) 1 else 0)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uHasLut"), if (hasValidLut) 1 else 0)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uLutSize"), lutSize.toFloat())
@@ -168,6 +190,7 @@ class GlFilterShaderProgram {
     }
 
     fun release() {
+        hasValidLut = false
         if (lutTextureId != 0) {
             GLES30.glDeleteTextures(1, intArrayOf(lutTextureId), 0)
             lutTextureId = 0
@@ -204,10 +227,14 @@ class GlFilterShaderProgram {
             in vec4 aPosition;
             in vec4 aTexCoord;
             uniform mat4 uTexMatrix;
+            uniform vec2 uCropScale;
             out vec2 vTexCoord;
+            out vec2 vScreenUv;
             void main() {
                 gl_Position = aPosition;
-                vTexCoord = (uTexMatrix * aTexCoord).xy;
+                vScreenUv = aTexCoord.xy;
+                vec2 cropped = (aTexCoord.xy - vec2(0.5)) * uCropScale + vec2(0.5);
+                vTexCoord = (uTexMatrix * vec4(cropped, 0.0, 1.0)).xy;
             }
         """
 
@@ -217,15 +244,20 @@ class GlFilterShaderProgram {
             precision mediump sampler3D;
 
             in vec2 vTexCoord;
+            in vec2 vScreenUv;
             out vec4 fragColor;
 
             uniform samplerExternalOES uCameraTex;
             uniform sampler3D uLutTex;
             uniform vec2 uTexelSize;
+            uniform float uProWarmth;
             uniform float uStrength;
             uniform float uExposureEv;
             uniform float uContrast;
             uniform float uSaturation;
+            uniform float uShadows;
+            uniform float uHighlights;
+            uniform float uWhiteGain;
             uniform vec2 uWbShift;
             uniform vec3 uHighlightTint;
             uniform vec3 uShadowTint;
@@ -233,6 +265,7 @@ class GlFilterShaderProgram {
             uniform float uVignette;
             uniform float uGrain;
             uniform float uFade;
+            uniform float uSoftGlow;
             uniform int uMonochrome;
             uniform int uHasLut;
             uniform float uLutSize;
@@ -248,12 +281,18 @@ class GlFilterShaderProgram {
 
             void main() {
                 vec4 src = texture(uCameraTex, vTexCoord);
-                vec3 orig = src.rgb;
+                vec3 orig = clamp(src.rgb + vec3(uProWarmth, 0.0, -uProWarmth), 0.0, 1.0);
                 vec3 col = orig * exp2(uExposureEv);
 
                 col.r += uWbShift.x + uWbShift.y * 0.35;
                 col.g -= uWbShift.y * 0.70;
                 col.b -= uWbShift.x - uWbShift.y * 0.35;
+
+                float lum0 = clamp(lumaOf(col), 0.0, 1.0);
+                float shMask = (1.0 - lum0) * (1.0 - lum0);
+                float hiMask = lum0 * lum0;
+                float toneDelta = uShadows * shMask + uHighlights * hiMask;
+                col = (col + vec3(toneDelta)) * uWhiteGain;
 
                 col = clamp((col - 0.5) * uContrast + 0.5, 0.0, 1.0);
                 float lum = lumaOf(col);
@@ -275,17 +314,26 @@ class GlFilterShaderProgram {
                     col = mix(col, uHighlightTint, l2 * uCastMix * 0.28);
                 }
 
-                col = col * (1.0 - uFade) + uFade;
+                float liftPos = max(uFade, 0.0);
+                col = col * (1.0 - liftPos) + vec3(uFade);
+
+                if (uSoftGlow > 0.001) {
+                    float bright = max(max(col.r, col.g), col.b);
+                    if (bright > 0.68) {
+                        float bloom = (bright - 0.68) * uSoftGlow;
+                        col += vec3(bloom * 1.05, bloom * 0.96, bloom * 0.88);
+                    }
+                }
 
                 if (uGrain > 0.001) {
-                    float n = fract(sin(dot(vTexCoord * (1000.0 + uTime), vec2(12.9898, 78.233))) * 43758.5453);
+                    float n = fract(sin(dot(vScreenUv * (1000.0 + uTime), vec2(12.9898, 78.233))) * 43758.5453);
                     col += (n - 0.5) * uGrain;
                 }
 
                 if (uVignette > 0.001) {
-                    vec2 d = (vTexCoord - 0.5) * 2.0;
+                    vec2 d = (vScreenUv - 0.5) * 2.0;
                     float v = 1.0 - uVignette * dot(d, d) * 0.5;
-                    col *= clamp(v, 0.2, 1.0);
+                    col *= clamp(v, 0.25, 1.0);
                 }
 
                 col = mix(orig, clamp(col, 0.0, 1.0), uStrength);

@@ -2,6 +2,35 @@
 
 All notable changes to **Ophoto (`com.ophoto`)** will be documented in this file.
 
+## [v1.1.0] - 2026-10-24 — *Precision Studio*
+
+### 🔥 核心修复：彻底解决专业模式预览与拍照过暗 / 黑片问题
+
+- **专业模式四态曝光互易率架构（`ExposureConfig` + `CameraX2Engine`）**
+  - 移除切入「专业」模式即硬锁 `ISO 200 + 1/60s` 的缺陷；进入专业模式默认运行原生 ISP 自动测光，仪表盘以 ~6Hz 实时回显 `TotalCaptureResult` 传感器感光度与快门速度。
+  - 支持 **自动 AE / ISO 优先半自动 / 快门优先半自动 / 全手动 M** 四态无缝切换：单轴调整 `ISO` 或 `快门` 时基于环境测光互易率（`resolveManualParameters`）自动补偿另一轴，并下发 `SENSOR_FRAME_DURATION` 解锁慢门进光。
+  - 新增全手动欠曝守护：当双轴手动组合相对环境测光欠曝超过 `-1.5 EV` 时，取景器右上角自动弹出 **「曝光偏暗 · 点此恢复自动」** 一键救回胶囊。
+- **光学白平衡无损偏移与双流拍照帧率解绑**
+  - 修复手动色温 K 值缺少 3×3 `COLOR_CORRECTION_TRANSFORM` 矩阵导致部分机型 ISP 偏绿发暗的问题，改为在 GPU 着色器（`uProWarmth`）与成片管线中进行无损光学色温偏移；纯自动态通过 `clearCaptureRequestOptions()` 100% 交还 OEM 原生 3A / HDR / 闪光灯控制权。
+  - 新增 `setVideoModeEnabled`：拍照与专业模式仅绑定双流（`Preview + ImageCapture`），解除常驻 4K `VideoCapture` 对暗光自动快门 `≥ 1/30s` 的帧率钳制。
+  - `takePhoto()` 在按下快门前显式 `await()` 异步 Camera2 参数生效，确保预览与成片亮度严格一致。
+- **消除内置预设双重调色（Double-Grading）与补全着色器通道**
+  - 相机启动默认改为纯净 **「原片直出」**；仅对真实外部 `.cube` 文件加载 3D LUT 纹理，彻底修复内置配方重复叠加两次导致暗部死黑、暗角翻倍的问题。
+  - 补全 `GlFilterShaderProgram` 的 `uShadows`、`uHighlights`、`uWhiteGain`、`uFade`、`uSoftGlow` 着色器通道，并在 `GlLutPreviewView` 实现 `64×48` GPU FBO 实时 RGB/明度直方图采样与竖屏无畸变中心裁剪（`portraitRatio`）。
+
+### 🎨 全应用 4 层光学暗房 UI 与交互重构
+
+- **4 层光学仪器色彩与等宽遥测排版（`Color.kt` / `Type.kt` / `DesignSystem.kt` / `OphotoAppShell.kt`）**
+  - 建立曜石底板 → 阳极氧化仪表甲板 → 内凹 LCD 参数槽 → 悬浮毛玻璃胶囊四级视觉层次，配合 `56dp` 紧凑型暗房底栏（`PrecisionStudioBottomDock`）释放垂直取景空间。
+- **4 区哈苏/徕卡式专业相机界面（`CameraScreen.kt` + `ViewfinderOverlays.kt`）**
+  - `42dp` 极简顶栏 + 四向旁轴取景角标 / 双翼电子水平仪 / 四角对焦框（支持点触对焦与上下滑动手势调节 EV）/ 内嵌等效焦段胶囊 + 互斥折叠的 5 格实时测光仪表盘与精雕刻度尺（`EngravedScaleMarks`）+ 居中模式拨盘与双环金属快门。
+- **大师调色库、无损暗房、现场助手与设备诊断升级**
+  - **大师调色库**：修复 `MasterPresetCard` 布局错位 Bug，升级为 `132dp` 全宽样片横幅 + 6 格内凹大师参数遥测矩阵 + 紧凑光学搜索栏。
+  - **无损暗房**：新增支持点按与拖拽的 **RGB / 红 / 绿 / 蓝 四通道交互曲线**、带实时渲染缩略图的滤镜带与 5 段式分段工具舱。
+  - **现场助手 & 设备诊断**：升级分段式镜头蓝图、带光束锥的极坐标灯位雷达、4 格天文/景深遥测卡片与物理镜头矩阵诊断面板。
+
+---
+
 ## [v1.0.0] - 2026-10-23 — *Optical Horizon*
 
 ### ✨ Highlights / 首发核心特性
