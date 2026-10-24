@@ -16,41 +16,48 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ophoto.OphotoContainer
-import com.ophoto.core.device.OppoDeviceInspector
-import com.ophoto.core.log.SafeLogger
-import com.ophoto.core.storage.MediaStoreSaver
-import com.ophoto.data.local.FloatingHudStyle
+import com.ophoto.core.permission.CameraPermissionHelper
 import com.ophoto.data.local.UserSettings
-import com.ophoto.data.local.VideoLutMode
-import com.ophoto.data.local.VolumeKeyAction
-import com.ophoto.ui.camera.TopHudChip
+import com.ophoto.data.repository.BuiltInPresets
+import com.ophoto.service.MasterOverlayService
+import com.ophoto.ui.theme.BorderSubtle
 import com.ophoto.ui.theme.BrassGold
-import com.ophoto.ui.theme.HairlineBorder
-import com.ophoto.ui.theme.InstrumentDeck
+import com.ophoto.ui.theme.ControlPillBg
+import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.ObsidianBg
-import com.ophoto.ui.theme.OpticalEmerald
+import com.ophoto.ui.theme.OphotoCard
+import com.ophoto.ui.theme.OphotoDivider
+import com.ophoto.ui.theme.OphotoMetricCell
 import com.ophoto.ui.theme.OphotoSection
+import com.ophoto.ui.theme.OpticalEmerald
+import com.ophoto.ui.theme.SurfaceRecessed
+import com.ophoto.ui.theme.TextMuted
+import com.ophoto.ui.theme.TextOnAccent
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.launch
-import java.io.File
-import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -61,231 +68,339 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val settings by container.preferences.settingsFlow.collectAsState(initial = UserSettings())
     val hw = container.hardwareProfile
+    val overlayGranted = CameraPermissionHelper.canDrawFloatingOverlay(context)
+    val overlayRunning by MasterOverlayService.isRunningFlow.collectAsState()
 
-    LazyColumn(
+    var templateDraft by remember(settings.fileNameTemplate) { mutableStateOf(settings.fileNameTemplate) }
+
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 28.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        item {
-            OphotoSection(
-                title = "设置与机型适配中心",
-                subtitle = "本地零上传 · 针对 OPPO / OnePlus / realme 多摄、高刷与 ColorOS 深度优化",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        OphotoSection(
+            eyebrow = "OPTICAL HARDWARE & STUDIO PREFS",
+            title = "设备诊断与偏好",
+            subtitle = "Camera2 传感器能力枚举 · ColorOS 悬浮窗 · 纯离线隐私沙盒",
+        )
 
-        // 1. OPPO / ColorOS Hardware & Physical Lens Inspector
-        item {
-            SettingsGroupCard("📱 设备与物理多摄能力检测") {
-                Text(
-                    text = "${hw.displayTitle}  ·  ${hw.ecosystem.displayLabel}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = OpticalEmerald,
-                )
-                Text(
-                    text = "系统版本：${hw.romVersionHint}  |  最高刷新率：${hw.maxRefreshRateHz}Hz  |  主摄规格参考：${hw.mainSensorFormat}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                )
-                if (hw.lenses.isEmpty()) {
-                    Text(
-                        text = "提示：授予相机权限后可枚举全部物理副摄焦段、ISO 上限与 DNG RAW 支持情况。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = BrassGold,
-                    )
-                } else {
-                    hw.lenses.forEach { lens ->
+        Spacer(Modifier.height(10.dp))
+
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 28.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            // 1. Hardware Telemetry Card
+            item {
+                OphotoCard(
+                    borderColor = BrassGold.copy(alpha = 0.40f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "影像硬件能力报告",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OpticalEmerald,
+                            )
+                            Text(
+                                text = hw.displayTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                            )
+                        }
                         Text(
-                            text = "• ID ${lens.cameraId}: ${lens.roleLabel} | f/${lens.maxAperture ?: 1.8f} | ISO ${lens.isoRange.first}–${lens.isoRange.last} | RAW: ${if (lens.supportsRaw) "支持" else "JPEG"}",
+                            text = hw.camera2HardwareLevel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextPrimary,
+                            color = BrassGold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SurfaceRecessed)
+                                .border(0.7.dp, BorderSubtle, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                }
-            }
-        }
 
-        // 2. Camera & HUD Controls
-        item {
-            SettingsGroupCard("📷 相机与取景辅助") {
-                SettingSwitchRow("电子水平仪（0.0° 翡翠绿对齐提示）", settings.showLeveler) { v ->
-                    scope.launch { container.preferences.update { it.copy(showLeveler = v) } }
-                }
-                SettingSwitchRow("实时 RGB / 亮度直方图浮层", settings.showHistogram) { v ->
-                    scope.launch { container.preferences.update { it.copy(showHistogram = v) } }
-                }
-                SettingSwitchRow("高光过曝斑马纹预警（>96%）", settings.showZebraStripes) { v ->
-                    scope.launch { container.preferences.update { it.copy(showZebraStripes = v) } }
-                }
-                SettingSwitchRow("取景器曝光与焦段参数 HUD", settings.showParameterHud) { v ->
-                    scope.launch { container.preferences.update { it.copy(showParameterHud = v) } }
-                }
-                SettingSwitchRow("触摸取景框即刻拍照", settings.touchToCapture) { v ->
-                    scope.launch { container.preferences.update { it.copy(touchToCapture = v) } }
-                }
-                SettingSwitchRow("前置自拍水平镜像保持", settings.mirrorFrontCamera) { v ->
-                    scope.launch { container.preferences.update { it.copy(mirrorFrontCamera = v) } }
-                }
-
-                Spacer(Modifier.height(4.dp))
-                Text("音量实体键功能映射", style = MaterialTheme.typography.labelMedium, color = BrassGold)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(VolumeKeyAction.entries) { act ->
-                        TopHudChip(act.label, settings.volumeKeyAction == act) {
-                            scope.launch { container.preferences.update { it.copy(volumeKeyAction = act) } }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Filter, Video LUT Performance & Floating Window
-        item {
-            SettingsGroupCard("🎞 滤镜引擎与大师悬浮窗") {
-                Text(
-                    text = "默认滤镜强度：${(settings.defaultFilterStrength * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = BrassGold,
-                )
-                Slider(
-                    value = settings.defaultFilterStrength,
-                    onValueChange = { s ->
-                        scope.launch { container.preferences.update { it.copy(defaultFilterStrength = s) } }
-                    },
-                    valueRange = 0.2f..1.0f,
-                    colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
-                )
-
-                Text("录像实时 LUT 功耗与温控策略（防发热优化）", style = MaterialTheme.typography.labelMedium, color = BrassGold)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(VideoLutMode.entries) { mode ->
-                        TopHudChip(mode.label, settings.videoLutMode == mode) {
-                            scope.launch { container.preferences.update { it.copy(videoLutMode = mode) } }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "系统相机悬浮窗形态（不透明度 ${(settings.floatingHudOpacity * 100).roundToInt()}%）",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = BrassGold,
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(FloatingHudStyle.entries) { st ->
-                        TopHudChip(st.label, settings.floatingHudStyle == st) {
-                            scope.launch { container.preferences.update { it.copy(floatingHudStyle = st) } }
-                        }
-                    }
-                }
-                Slider(
-                    value = settings.floatingHudOpacity,
-                    onValueChange = { op ->
-                        scope.launch { container.preferences.update { it.copy(floatingHudOpacity = op) } }
-                    },
-                    valueRange = 0.50f..1.0f,
-                    colors = SliderDefaults.colors(thumbColor = OpticalEmerald, activeTrackColor = OpticalEmerald),
-                )
-                OutlinedButton(
-                    onClick = { context.startActivity(OppoDeviceInspector.buildAppDetailsIntent(context)) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("打开应用权限详情页（ColorOS 解除受限设置入口）", color = BrassGold)
-                }
-            }
-        }
-
-        // 4. Storage Naming & Privacy Sandbox
-        item {
-            SettingsGroupCard("🔒 存储命名与本地隐私保护") {
-                OutlinedTextField(
-                    value = settings.fileNameTemplate,
-                    onValueChange = { tpl ->
-                        scope.launch { container.preferences.update { it.copy(fileNameTemplate = tpl) } }
-                    },
-                    label = { Text("文件命名模板（支持 {yyyyMMdd} {HHmmss} {MODE} {FILTER}）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = "实时命名预览：${MediaStoreSaver.formatFileName(settings.fileNameTemplate, "PRO", "青绿胶片")}.jpg",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OpticalEmerald,
-                )
-                SettingSwitchRow("同时保存 DNG RAW（设备支持时）", settings.enableRawWhenSupported) { v ->
-                    scope.launch { container.preferences.update { it.copy(enableRawWhenSupported = v) } }
-                }
-                SettingSwitchRow("照片 EXIF 写入地理位置（默认关闭保护隐私）", settings.saveGpsLocation) { v ->
-                    scope.launch { container.preferences.update { it.copy(saveGpsLocation = v) } }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = {
-                            File(context.cacheDir, "exports").deleteRecursively()
-                            SafeLogger.clear()
-                            Toast.makeText(context, "已清理临时导出缓存与诊断日志", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.weight(1f),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text("清理临时缓存", color = TextPrimary)
+                        OphotoMetricCell(
+                            title = "DNG RAW",
+                            value = if (hw.supportsRawCapture) "支持" else "直出",
+                            valueColor = if (hw.supportsRawCapture) OpticalEmerald else TextSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OphotoMetricCell(
+                            title = "最高帧率",
+                            value = "${hw.maxSupportedFps}fps",
+                            valueColor = CyanTelemetry,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OphotoMetricCell(
+                            title = "逻辑多摄",
+                            value = if (hw.supportsLogicalMultiCamera) "已就绪" else "单摄",
+                            valueColor = BrassGold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OphotoMetricCell(
+                            title = "折叠适配",
+                            value = if (hw.isFoldableCandidate) "双栏" else "直板",
+                            valueColor = TextPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                container.filterRepository.clearAllUserImportedFilters()
-                                Toast.makeText(context, "已移除全部外部导入滤镜，保留内置预设", Toast.LENGTH_SHORT).show()
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(hw.lenses) { lens ->
+                            Text(
+                                text = "${lens.label} · ${lens.equivalentFocalMm}mm f/${lens.maxAperture}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CyanTelemetry,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(SurfaceRecessed)
+                                    .border(0.6.dp, BorderSubtle, RoundedCornerShape(7.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = hw.colorOsOverlayNote,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                }
+            }
+
+            // 2. ColorOS Floating Master Assistant Card
+            item {
+                OphotoCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "ColorOS 原生相机大师模式悬浮窗",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = BrassGold,
+                        )
+                        Text(
+                            text = if (overlayGranted) "✓ 已授权" else "待授权",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (overlayGranted) OpticalEmerald else TextMuted,
+                        )
+                    }
+
+                    Text(
+                        text = "在 OPPO 系统原生相机「大师模式」界面悬浮展示实时影调、冷暖、青品参数刻度与水平仪参考。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!overlayGranted) {
+                            Button(
+                                onClick = {
+                                    context.startActivity(CameraPermissionHelper.createOverlayPermissionIntent(context))
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = BrassGold,
+                                    contentColor = TextOnAccent,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("前往开启悬浮窗权限", fontWeight = FontWeight.Bold)
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("重置导入滤镜", color = TextSecondary)
+                        } else {
+                            Button(
+                                onClick = {
+                                    if (overlayRunning) {
+                                        MasterOverlayService.stop(context)
+                                    } else {
+                                        MasterOverlayService.startWithPreset(
+                                            context = context,
+                                            presetId = BuiltInPresets.ALL.first().id,
+                                            launchSystemCamera = false,
+                                        )
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (overlayRunning) OpticalEmerald else BrassGold,
+                                    contentColor = TextOnAccent,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text(
+                                    text = if (overlayRunning) "关闭当前悬浮窗" else "启动大师悬浮窗测试",
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun SettingsGroupCard(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(InstrumentDeck, RoundedCornerShape(16.dp))
-            .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = BrassGold)
-        content()
+            // 3. Viewfinder & Capture Preferences Card
+            item {
+                OphotoCard(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "取景器与快门操控",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = BrassGold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    SettingSwitchRow(
+                        title = "实时 RGB / 明度直方图",
+                        subtitle = "取景器左上角实时采样 GPU 帧缓冲亮度分布，防止高光死白与暗部死黑",
+                        checked = settings.showHistogram,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(showHistogram = v) } }
+                    }
+                    OphotoDivider()
+                    SettingSwitchRow(
+                        title = "双翼光学电子水平仪",
+                        subtitle = "融合重力传感器倾角，在 ±1° 水平对准时自动点亮光学翡翠绿",
+                        checked = settings.showLeveler,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(showLeveler = v) } }
+                    }
+                    OphotoDivider()
+                    SettingSwitchRow(
+                        title = "物理音量键充当快门",
+                        subtitle = "抓拍街景与冬季戴手套时直接按压音量加减键触发快门",
+                        checked = settings.volumeKeyAsShutter,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(volumeKeyAsShutter = v) } }
+                    }
+                    OphotoDivider()
+                    SettingSwitchRow(
+                        title = "保留上一次滤镜与构图状态",
+                        subtitle = "重启应用时自动恢复上次使用的构图参考线与比例",
+                        checked = settings.rememberLastCameraState,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(rememberLastCameraState = v) } }
+                    }
+                    OphotoDivider()
+                    SettingSwitchRow(
+                        title = "同时保存无滤镜原片备份",
+                        subtitle = "使用胶片预设拍照时额外保存一张纯净无调色底片至相册",
+                        checked = settings.keepUnfilteredBackup,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(keepUnfilteredBackup = v) } }
+                    }
+                    OphotoDivider()
+                    SettingSwitchRow(
+                        title = "导出照片默认剥离 GPS 坐标",
+                        subtitle = "社交平台分享时保护拍摄地隐私，保留快门/ISO/焦段光学 EXIF",
+                        checked = settings.stripGpsOnShare,
+                    ) { v ->
+                        scope.launch { container.preferences.update { it.copy(stripGpsOnShare = v) } }
+                    }
+                }
+            }
+
+            // 4. File Naming & Offline Privacy Card
+            item {
+                OphotoCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "导出文件命名规则与本地沙盒",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = BrassGold,
+                    )
+                    Text(
+                        text = "可用占位符：{DATE} 日期 · {TIME} 时间 · {MODE} 拍摄模式 · {FILTER} 滤镜名",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                    )
+                    OutlinedTextField(
+                        value = templateDraft,
+                        onValueChange = { templateDraft = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    container.preferences.update {
+                                        it.copy(fileNameTemplate = templateDraft.ifBlank { "OPHOTO_{DATE}_{TIME}_{FILTER}" })
+                                    }
+                                    Toast.makeText(context, "已保存导出文件命名模板", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = TextOnAccent),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Text("保存命名模板", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                context.cacheDir.resolve("exports").deleteRecursively()
+                                Toast.makeText(context, "已清理临时导出缓存（收藏与滤镜完整保留）", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = SurfaceRecessed,
+                                contentColor = BrassGold,
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Text("清理导出缓存", color = BrassGold)
+                        }
+                    }
+                    OphotoDivider()
+                    Text(
+                        text = "零联网隐私承诺：Ophoto 未声明 INTERNET 权限，全部 3D LUT 渲染、照片编辑与天文光学计算 100% 在手机本地沙盒离线完成。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OpticalEmerald,
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun SettingSwitchRow(
     title: String,
+    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f),
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = TextOnAccent,
+                checkedTrackColor = BrassGold,
+                uncheckedThumbColor = TextSecondary,
+                uncheckedTrackColor = ControlPillBg,
+                uncheckedBorderColor = BorderSubtle,
+            ),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

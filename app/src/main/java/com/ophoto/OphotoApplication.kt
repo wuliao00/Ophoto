@@ -28,6 +28,7 @@ data class FieldToCameraSetupCommand(
     val kelvin: Int,
     val focalMmHint: Int,
     val tipBanner: String,
+    val applyManualWb: Boolean = true,
 )
 
 class OphotoContainer(appContext: Context) {
