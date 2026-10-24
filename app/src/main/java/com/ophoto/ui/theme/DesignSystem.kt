@@ -42,10 +42,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OphotoCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(16.dp),
     borderDp: Dp = 1.dp,
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -226,7 +226,6 @@ fun EmptyState(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                textAlign = androidx.compose.ui.text.TextAlign.Center,
             )
         }
         if (onAction != null && actionLabel != null) {
@@ -271,15 +270,15 @@ fun SkeletonBlock(
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(12.dp),
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier
             .clip(shape)
             .background(Color(0xAD0B0D12), shape)
             .border(0.8.dp, Color.White.copy(alpha = 0.10f), shape),
-        content = content,
+        content = { content() },
     )
 }
 
