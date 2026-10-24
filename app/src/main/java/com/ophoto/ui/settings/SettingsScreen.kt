@@ -45,6 +45,7 @@ import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OpticalEmerald
+import com.ophoto.ui.theme.OphotoSection
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.launch
@@ -70,11 +71,10 @@ fun SettingsScreen(
         contentPadding = PaddingValues(bottom = 28.dp),
     ) {
         item {
-            Text("设置与机型适配中心", style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
-            Text(
-                "本地零上传 · 针对 OPPO / OnePlus / realme 多摄、高刷与 ColorOS 深度优化",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+            OphotoSection(
+                title = "设置与机型适配中心",
+                subtitle = "本地零上传 · 针对 OPPO / OnePlus / realme 多摄、高刷与 ColorOS 深度优化",
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 

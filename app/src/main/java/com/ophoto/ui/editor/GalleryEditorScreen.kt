@@ -89,9 +89,11 @@ import com.ophoto.engine.metadata.MetadataEngine
 import com.ophoto.ui.camera.TopHudChip
 import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
+import com.ophoto.ui.theme.EmptyState
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
+import com.ophoto.ui.theme.OphotoCard
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
@@ -351,15 +353,15 @@ fun GalleryEditorScreen(
         Spacer(Modifier.height(8.dp))
 
         // Tool Controls Deck
-        Column(
+        OphotoCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.54f)
-                .background(InstrumentDeck, RoundedCornerShape(16.dp))
                 .padding(12.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            borderDp = 1.dp,
         ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when (activeToolTab) {
                 DarkroomToolTab.FILTER -> {
                     Text(
@@ -562,6 +564,7 @@ fun GalleryEditorScreen(
                     }
                 }
             }
+        }
         }
     }
 }
