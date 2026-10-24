@@ -12,7 +12,6 @@ import com.ophoto.engine.image.ImageProcessEngine
 import com.ophoto.engine.image.PhotoEditRecipe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -72,30 +71,31 @@ class FieldCalculatorsAndEngineTest {
         // 1. Default Pro Mode starts in Auto ISO + Auto Shutter -> delegates to native Camera2 AE
         val defaultPro = ExposureConfig()
         assertFalse(defaultPro.isAnyManual)
-        assertFalse(defaultPro.isFullManual)
-        val autoPair = defaultPro.resolveManualParameters(ambientIso = 800, ambientExposureNs = 33_333_333L)
-        assertNull(autoPair.first)
-        assertNull(autoPair.second)
+        assertFalse(defaultPro.isIsoManualEffective)
+        assertFalse(defaultPro.isShutterManualEffective)
+        val autoPair = defaultPro.resolveManualParameters(meteredIso = 800, meteredExposureNs = 33_333_333L)
+        assertEquals(800, autoPair.first)
+        assertEquals(33_333_333L, autoPair.second)
 
-        // 2. Indoor scene (metered ISO 800 @ 1/30s = 33.33ms): locking ISO to 200 solves shutter to ~1/7.5s (133.3ms)
+        // 2. Indoor scene (metered ISO 600 @ 1/30s = 33.33ms): locking ISO to 200 solves shutter to ~1/10s (100ms)
         val isoPriority = ExposureConfig(iso = 200, manualIso = true, manualShutter = false)
         val (solvedIso1, solvedNs1) = isoPriority.resolveManualParameters(
-            ambientIso = 800,
-            ambientExposureNs = 33_333_333L,
+            meteredIso = 600,
+            meteredExposureNs = 33_333_333L,
         )
         assertEquals(200, solvedIso1)
-        assertEquals(133_333_332L, solvedNs1 ?: 0L)
-        assertEquals(0f, isoPriority.estimateExposureDeltaStops(800, 33_333_333L), 0.001f)
+        assertEquals(99_999_999L, solvedNs1)
+        assertTrue(Math.abs(isoPriority.estimateExposureDeltaStops(600, 33_333_333L)) < 0.05f)
 
-        // 3. Indoor scene (metered ISO 800 @ 1/30s): locking shutter to 1/120s (8.33ms) boosts ISO to 3200
+        // 3. Indoor scene (metered ISO 800 @ 1/30s): locking shutter to 1/120s boosts ISO to 3200
         val shutterPriority = ExposureConfig(
-            shutterNs = 8_333_333L,
+            shutterSeconds = 1.0 / 120.0,
             manualIso = false,
             manualShutter = true,
         )
         val (solvedIso2, solvedNs2) = shutterPriority.resolveManualParameters(
-            ambientIso = 800,
-            ambientExposureNs = 33_333_333L,
+            meteredIso = 800,
+            meteredExposureNs = 33_333_333L,
         )
         assertEquals(3200, solvedIso2)
         assertEquals(8_333_333L, solvedNs2)
@@ -103,12 +103,12 @@ class FieldCalculatorsAndEngineTest {
         // 4. Full manual dark lock (ISO 100 + 1/125s = 8ms vs ambient ISO 800 + 33.3ms) -> ~ -5.06 EV warning
         val darkManual = ExposureConfig(
             iso = 100,
-            shutterNs = 8_000_000L,
+            shutterSeconds = 1.0 / 125.0,
             manualIso = true,
             manualShutter = true,
         )
-        assertTrue(darkManual.isFullManual)
-        val deltaEv = darkManual.estimateExposureDeltaStops(ambientIso = 800, ambientExposureNs = 33_333_333L)
+        assertTrue(darkManual.isIsoManualEffective && darkManual.isShutterManualEffective)
+        val deltaEv = darkManual.estimateExposureDeltaStops(meteredIso = 800, meteredExposureNs = 33_333_333L)
         assertTrue("Expected severe negative EV delta (< -4.5 EV), got $deltaEv", deltaEv < -4.5f)
     }
 

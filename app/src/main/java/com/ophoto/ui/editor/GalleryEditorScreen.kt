@@ -33,14 +33,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.RotateRight
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.BurstMode
 import androidx.compose.material.icons.rounded.Compare
 import androidx.compose.material.icons.rounded.Flip
-import androidx.compose.material.icons.rounded.Redo
-import androidx.compose.material.icons.rounded.RotateRight
 import androidx.compose.material.icons.rounded.SaveAlt
-import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -294,7 +294,7 @@ fun GalleryEditorScreen(
                     modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Undo,
+                        imageVector = Icons.AutoMirrored.Rounded.Undo,
                         contentDescription = "撤销",
                         tint = if (undoStack.isNotEmpty()) TextPrimary else TextMuted,
                         modifier = Modifier.size(17.dp),
@@ -311,7 +311,7 @@ fun GalleryEditorScreen(
                     modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Redo,
+                        imageVector = Icons.AutoMirrored.Rounded.Redo,
                         contentDescription = "重做",
                         tint = if (redoStack.isNotEmpty()) TextPrimary else TextMuted,
                         modifier = Modifier.size(17.dp),
@@ -712,7 +712,7 @@ fun GalleryEditorScreen(
                                     .background(SurfaceRecessed, CircleShape),
                             ) {
                                 Icon(
-                                    Icons.Rounded.RotateRight,
+                                    Icons.AutoMirrored.Rounded.RotateRight,
                                     contentDescription = "旋转90度",
                                     tint = BrassGold,
                                     modifier = Modifier.size(17.dp),
