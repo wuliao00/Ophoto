@@ -56,7 +56,7 @@ jobs:
         if: failure()
         run: |
           echo "===== RELEASE BUILD ERRORS ====="
-          grep -E "error:|Error:|FAILED|Exception|Caused by|What went wrong|Could not|Cannot|unable" /tmp/release-build.log 2>/dev/null | head -n 30 | while IFS= read -r line; do
+          grep -E "e:|w:|error:|Error:|FAILED|Exception|Caused by|What went wrong|Could not|Cannot|unable|unresolved|mismatch|not enough|cannot access|inheritors" /tmp/release-build.log 2>/dev/null | head -n 40 | while IFS= read -r line; do
             echo "::error::${line}"
           done || true
           echo "===== RELEASE BUILD TAIL ====="
