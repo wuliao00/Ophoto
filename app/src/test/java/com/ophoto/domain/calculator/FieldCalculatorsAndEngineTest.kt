@@ -119,7 +119,12 @@ class FieldCalculatorsAndEngineTest {
         assertEquals(9f / 16f, ViewfinderAspectRatio.RATIO_16_9.portraitRatio, 0.001f)
         assertEquals(1f, ViewfinderAspectRatio.RATIO_1_1.portraitRatio, 0.001f)
 
-        val sample = BuiltInPresets.createSamplePreviewBitmap(80, 60)
+        val w = 40
+        val h = 30
+        val midTonePixels = IntArray(w * h) { 0xFF707882.toInt() }
+        val sample = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            setPixels(midTonePixels, 0, w, 0, 0, w, h)
+        }
         val preset = BuiltInPresets.ALL.first { it.category == FilterCategory.NIGHT }
         val singlePassEngine = FilterEngineImpl().apply {
             loadFilterWithExplicitLut(preset, null)
@@ -128,8 +133,8 @@ class FieldCalculatorsAndEngineTest {
         val singleGraded = singlePassEngine.applyToImage(sample)
         val singleHist = singlePassEngine.computeHistogram(singleGraded)
         assertTrue(
-            "Single-pass grading should preserve shadow detail without crushing (>50% clip), got ${singleHist.shadowClipPercent}",
-            singleHist.shadowClipPercent < 50f,
+            "Single-pass grading on mid-tone frame must not clip shadows, got ${singleHist.shadowClipPercent}",
+            singleHist.shadowClipPercent < 5f,
         )
     }
 
