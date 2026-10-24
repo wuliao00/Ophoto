@@ -116,7 +116,7 @@ fun SettingsScreen(
                             )
                         }
                         Text(
-                            text = hw.camera2HardwareLevel,
+                            text = hw.ecosystem.displayLabel,
                             style = MaterialTheme.typography.labelSmall,
                             color = BrassGold,
                             modifier = Modifier
@@ -132,48 +132,51 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         OphotoMetricCell(
+                            title = "主摄底片",
+                            value = hw.mainSensorFormat,
+                            valueColor = BrassGold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OphotoMetricCell(
                             title = "DNG RAW",
                             value = if (hw.supportsRawCapture) "支持" else "直出",
                             valueColor = if (hw.supportsRawCapture) OpticalEmerald else TextSecondary,
                             modifier = Modifier.weight(1f),
                         )
                         OphotoMetricCell(
-                            title = "最高帧率",
-                            value = "${hw.maxSupportedFps}fps",
+                            title = "高刷显示",
+                            value = "${hw.maxRefreshRateHz}Hz",
                             valueColor = CyanTelemetry,
                             modifier = Modifier.weight(1f),
                         )
                         OphotoMetricCell(
-                            title = "逻辑多摄",
-                            value = if (hw.supportsLogicalMultiCamera) "已就绪" else "单摄",
-                            valueColor = BrassGold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OphotoMetricCell(
-                            title = "折叠适配",
-                            value = if (hw.isFoldableCandidate) "双栏" else "直板",
-                            valueColor = TextPrimary,
+                            title = "专业手动",
+                            value = if (hw.supportsProManual) "全支持" else "标准",
+                            valueColor = OpticalEmerald,
                             modifier = Modifier.weight(1f),
                         )
                     }
 
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(hw.lenses) { lens ->
-                            Text(
-                                text = "${lens.label} · ${lens.equivalentFocalMm}mm f/${lens.maxAperture}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = CyanTelemetry,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(SurfaceRecessed)
-                                    .border(0.6.dp, BorderSubtle, RoundedCornerShape(7.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                    if (hw.lenses.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(hw.lenses) { lens ->
+                                val apText = lens.maxAperture?.let { " f/$it" }.orEmpty()
+                                Text(
+                                    text = "${lens.roleLabel} · ${lens.equivalent35mm}mm$apText",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = CyanTelemetry,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(7.dp))
+                                        .background(SurfaceRecessed)
+                                        .border(0.6.dp, BorderSubtle, RoundedCornerShape(7.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
                         }
                     }
 
                     Text(
-                        text = hw.colorOsOverlayNote,
+                        text = "${hw.manufacturer} ${hw.model} · ${hw.romVersionHint}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                     )
