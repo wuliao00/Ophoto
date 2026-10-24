@@ -5,6 +5,7 @@ import com.ophoto.core.device.OppoDeviceInspector
 import com.ophoto.data.repository.BuiltInPresets
 import com.ophoto.engine.camera.ExposureConfig
 import com.ophoto.engine.camera.ViewfinderAspectRatio
+import com.ophoto.engine.filter.FilterCategory
 import com.ophoto.engine.filter.FilterEngineImpl
 import com.ophoto.engine.image.CurvePoint
 import com.ophoto.engine.image.FrameStyle
@@ -119,7 +120,7 @@ class FieldCalculatorsAndEngineTest {
         assertEquals(1f, ViewfinderAspectRatio.RATIO_1_1.portraitRatio, 0.001f)
 
         val sample = BuiltInPresets.createSamplePreviewBitmap(80, 60)
-        val preset = BuiltInPresets.ALL.first { it.id == "midnight_cyber" }
+        val preset = BuiltInPresets.ALL.first { it.category == FilterCategory.NIGHT }
         val singlePassEngine = FilterEngineImpl().apply {
             loadFilterWithExplicitLut(preset, null)
             setStrength(preset.defaultStrength)
@@ -127,7 +128,7 @@ class FieldCalculatorsAndEngineTest {
         val singleGraded = singlePassEngine.applyToImage(sample)
         val singleHist = singlePassEngine.computeHistogram(singleGraded)
         assertTrue(
-            "Single-pass grading should preserve shadow detail without crushing (>75% clip), got ${singleHist.shadowClipPercent}",
+            "Single-pass grading should preserve shadow detail without crushing (>50% clip), got ${singleHist.shadowClipPercent}",
             singleHist.shadowClipPercent < 50f,
         )
     }
