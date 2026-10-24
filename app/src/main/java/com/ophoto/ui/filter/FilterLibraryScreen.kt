@@ -100,6 +100,171 @@ import java.io.File
 import java.util.UUID
 
 @Composable
+@Composable
+fun MasterPresetCard(
+    preset: FilterPreset,
+    sampleBitmap: android.graphics.Bitmap,
+    container: OphotoContainer,
+    onApplyCamera: () -> Unit,
+    onLaunchOverlay: () -> Unit,
+    onShareQr: () -> Unit,
+    onExportCube: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val previewGraded = remember(preset.id, preset.params) {
+        val engine = com.ophoto.engine.filter.FilterEngineImpl()
+        engine.loadFilter(preset)
+        engine.setStrength(preset.defaultStrength)
+        engine.applyToImage(sampleBitmap)
+    }
+    val m = preset.masterReference
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(InstrumentDeck, RoundedCornerShape(16.dp))
+            .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                bitmap = previewGraded.asImageBitmap(),
+                contentDescription = preset.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(108.dp)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = preset.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = BrassGold,
+                    )
+                    Row {
+                        IconButton(
+                            onClick = { scope.launch { container.filterRepository.toggleFavorite(preset) } },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (preset.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = "收藏",
+                                tint = if (preset.isFavorite) ShutterOrange else TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        IconButton(onClick = onShareQr, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Rounded.QrCode2,
+                                contentDescription = "口令与二维码分享",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        if (!preset.isBuiltIn) {
+                            IconButton(
+                                onClick = { scope.launch { container.filterRepository.deletePreset(preset) } },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "删除滤镜",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    text = preset.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpticalEmerald,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = preset.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 2,
+                )
+            }
+        }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Master Mode Parameter Readout Grid (OMaster-inspired clean visual spec)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ControlPillBg, RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            MasterMetricCell("底色", m.baseFilterLabel)
+            MasterMetricCell("影调", formatSigned(m.tone))
+            MasterMetricCell("饱和", formatSigned(m.saturation))
+            MasterMetricCell("冷暖", formatSigned(m.warmth))
+            MasterMetricCell("青品", formatSigned(m.cyanMagenta))
+            MasterMetricCell("锐度", formatSigned(m.sharpness))
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            text = "曝光建议：${m.recommendedIso} · ${m.recommendedShutter} · ${m.recommendedEv} · ${m.recommendedKelvin}K",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondary,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onApplyCamera,
+                colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = ObsidianBg),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("应用至相机", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = onLaunchOverlay,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PictureInPictureAlt,
+                    contentDescription = null,
+                    tint = BrassGold,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("悬浮窗参考", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+            }
+            OutlinedButton(
+                onClick = onExportCube,
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text(".cube", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
+            }
+        }
+    }
 fun FilterLibraryScreen(
     container: OphotoContainer,
     onApplyAndOpenCamera: (String) -> Unit,
@@ -389,171 +554,6 @@ fun FilterLibraryScreen(
     }
 }
 
-@Composable
-fun MasterPresetCard(
-    preset: FilterPreset,
-    sampleBitmap: android.graphics.Bitmap,
-    container: OphotoContainer,
-    onApplyCamera: () -> Unit,
-    onLaunchOverlay: () -> Unit,
-    onShareQr: () -> Unit,
-    onExportCube: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    val previewGraded = remember(preset.id, preset.params) {
-        val engine = com.ophoto.engine.filter.FilterEngineImpl()
-        engine.loadFilter(preset)
-        engine.setStrength(preset.defaultStrength)
-        engine.applyToImage(sampleBitmap)
-    }
-    val m = preset.masterReference
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(InstrumentDeck, RoundedCornerShape(16.dp))
-            .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
-            .padding(12.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                bitmap = previewGraded.asImageBitmap(),
-                contentDescription = preset.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .width(108.dp)
-                    .height(80.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = preset.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = BrassGold,
-                    )
-                    Row {
-                        IconButton(
-                            onClick = { scope.launch { container.filterRepository.toggleFavorite(preset) } },
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (preset.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = "收藏",
-                                tint = if (preset.isFavorite) ShutterOrange else TextSecondary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                        IconButton(onClick = onShareQr, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                imageVector = Icons.Rounded.QrCode2,
-                                contentDescription = "口令与二维码分享",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                        if (!preset.isBuiltIn) {
-                            IconButton(
-                                onClick = { scope.launch { container.filterRepository.deletePreset(preset) } },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.DeleteOutline,
-                                    contentDescription = "删除滤镜",
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-                Text(
-                    text = preset.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OpticalEmerald,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = preset.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    maxLines = 2,
-                )
-            }
-        }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // Master Mode Parameter Readout Grid (OMaster-inspired clean visual spec)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(ControlPillBg, RoundedCornerShape(10.dp))
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            MasterMetricCell("底色", m.baseFilterLabel)
-            MasterMetricCell("影调", formatSigned(m.tone))
-            MasterMetricCell("饱和", formatSigned(m.saturation))
-            MasterMetricCell("冷暖", formatSigned(m.warmth))
-            MasterMetricCell("青品", formatSigned(m.cyanMagenta))
-            MasterMetricCell("锐度", formatSigned(m.sharpness))
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        Text(
-            text = "曝光建议：${m.recommendedIso} · ${m.recommendedShutter} · ${m.recommendedEv} · ${m.recommendedKelvin}K",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                onClick = onApplyCamera,
-                colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = ObsidianBg),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("应用至相机", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            }
-            OutlinedButton(
-                onClick = onLaunchOverlay,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.PictureInPictureAlt,
-                    contentDescription = null,
-                    tint = BrassGold,
-                    modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("悬浮窗参考", style = MaterialTheme.typography.labelMedium, color = BrassGold)
-            }
-            OutlinedButton(
-                onClick = onExportCube,
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                Text(".cube", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
-            }
-        }
-    }
 }
 
 @Composable
