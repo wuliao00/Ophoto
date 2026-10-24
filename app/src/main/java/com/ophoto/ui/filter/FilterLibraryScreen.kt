@@ -274,7 +274,6 @@ fun FilterLibraryScreen(
         // Preset Cards List
         if (filteredPresets.isEmpty()) {
             EmptyState(
-                icon = Icons.Default.FilterAltOff,
                 title = "暂无匹配滤镜",
                 desc = "尝试调整分类、取消收藏筛选或更换关键词再搜索",
                 modifier = Modifier.weight(1f).padding(horizontal = 24.dp),

@@ -44,14 +44,15 @@ fun OphotoCard(
     borderDp: Dp = 1.dp,
     content: @Composable () -> Unit,
 ) {
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(InstrumentDeck, shape)
             .border(borderDp, HairlineBorder, shape),
-        content = content,
-    )
+    ) {
+        content
+    }
 }
 
 /* 药丸芯片（统一替代分散的 TopHudChip 调用） */
