@@ -44,14 +44,12 @@ fun OphotoCard(
     borderDp: Dp = 1.dp,
     content: @Composable () -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(InstrumentDeck, shape)
             .border(borderDp, HairlineBorder, shape),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
         content = content,
     )
 }
@@ -275,13 +273,11 @@ fun GlassSurface(
     shape: Shape = RoundedCornerShape(12.dp),
     content: @Composable () -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = modifier
             .clip(shape)
             .background(Color(0xAD0B0D12), shape)
             .border(0.8.dp, Color.White.copy(alpha = 0.10f), shape),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
         content = content,
     )
 }
