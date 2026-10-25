@@ -1,7 +1,7 @@
 {
-  "version": "1.4.0",
-  "version_code": 6,
-  "tag": "v1.4.0",
+  "version": "1.4.1",
+  "version_code": 7,
+  "tag": "v1.4.1",
   "channel": "stable",
-  "codename": "Studio Pro Max"
+  "codename": "Studio Pro Max+"
 }
