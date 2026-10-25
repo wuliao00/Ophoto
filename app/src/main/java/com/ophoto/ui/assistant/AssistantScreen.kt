@@ -76,7 +76,9 @@ import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
+import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.PremiumHeroHeader
+import com.ophoto.ui.theme.ShutterOrange
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
