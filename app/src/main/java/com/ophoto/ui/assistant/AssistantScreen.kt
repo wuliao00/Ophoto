@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -74,9 +76,7 @@ import com.ophoto.ui.theme.CyanTelemetry
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
-import com.ophoto.ui.theme.OphotoSection
-import com.ophoto.ui.theme.OpticalEmerald
-import com.ophoto.ui.theme.ShutterOrange
+import com.ophoto.ui.theme.PremiumHeroHeader
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
@@ -109,13 +109,15 @@ fun AssistantScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color(0xFF0B0E14), ObsidianBg)))
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        OphotoSection(
-            title = "摄影现场助手 · Field HUD",
-            subtitle = "镜头灵感 · 俯视布光图 · 黄金时刻/景深/ND计算 · 出发清单与话术（全程离线）",
-            modifier = Modifier.fillMaxWidth(),
+        PremiumHeroHeader(
+            eyebrow = "FIELD HUD  ·  OFFLINE",
+            title = "现场助手",
+            subtitle = "镜头灵感 · 布光雷达 · 天文黄金时刻 · 景深 ND · 清单话术",
+            icon = androidx.compose.material.icons.Icons.Rounded.Explore,
+            stats = listOf("灵感卡" to "${com.ophoto.data.repository.FieldAssistantCatalog.SHOT_CARDS.size}", "灯位" to "${com.ophoto.data.repository.FieldAssistantCatalog.LIGHTING_GUIDES.size}", "城市" to "8 城")
         )
 
         Spacer(Modifier.height(8.dp))
