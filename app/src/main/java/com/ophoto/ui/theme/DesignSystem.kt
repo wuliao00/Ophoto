@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,16 +22,18 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /* ========================================================================
    Ophoto Design System — 基础视觉组件
@@ -52,6 +55,64 @@ fun OphotoCard(
             .border(borderDp, HairlineBorder, shape),
     ) {
         content
+    }
+}
+
+@Composable
+fun OphotoGlassCard(
+    modifier: Modifier = Modifier,
+    corner: Dp = 18.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(corner)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF141926), Color(0xFF0F121A))),
+                shape
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.07f), shape)
+            .padding(14.dp),
+        content = content
+    )
+}
+
+@Composable
+fun OphotoSectionHeader(
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    accent: Color = BrassGold,
+    trailing: @Composable (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                icon?.let {
+                    Box(
+                        Modifier.size(28.dp).clip(RoundedCornerShape(8.dp))
+                            .background(accent.copy(alpha = 0.18f)).border(0.8.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(it, null, tint = accent, modifier = Modifier.size(14.dp)) }
+                }
+                Column {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = accent, fontWeight = FontWeight.Bold)
+                    subtitle?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontSize = 10.sp)
+                    }
+                }
+            }
+            trailing?.invoke()
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(accent.copy(0.45f), Color.Transparent))))
     }
 }
 
@@ -110,6 +171,29 @@ fun OphotoPrimaryButton(
     )
 }
 
+@Composable
+fun OphotoBrassButton(
+    onClick: () -> Unit,
+    text: String,
+    icon: ImageVector? = null,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    androidx.compose.material3.Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(42.dp).clip(RoundedCornerShape(11.dp)),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = BrassGold, contentColor = ObsidianBg
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+        shape = RoundedCornerShape(11.dp)
+    ) {
+        icon?.let { Icon(it, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
+        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+    }
+}
+
 /* 描边按钮 */
 @Composable
 fun OphotoOutlinedButton(
@@ -136,7 +220,7 @@ fun OphotoOutlinedButton(
 @Composable
 fun OphotoIconButton(
     onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     tint: Color = TextPrimary,
     size: Dp = 40.dp,
     modifier: Modifier = Modifier,
@@ -183,7 +267,7 @@ fun OphotoSection(
 /* 空状态页 */
 @Composable
 fun EmptyState(
-    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Info,
+    icon: ImageVector = Icons.Default.Info,
     title: String = "暂无内容",
     desc: String? = null,
     modifier: Modifier = Modifier,
@@ -201,13 +285,14 @@ fun EmptyState(
             modifier = Modifier
                 .size(88.dp)
                 .clip(CircleShape)
-                .background(ControlPillBg, CircleShape)
+                .background(Brush.radialGradient(listOf(Color(0xFF1E2430), Color(0xFF0D1017))), CircleShape)
+                .border(1.dp, HairlineBorder, CircleShape)
                 .padding(16.dp),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = TextMuted,
+                tint = BrassGold,
                 modifier = Modifier.size(32.dp),
             )
         }
@@ -223,12 +308,15 @@ fun EmptyState(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
         if (onAction != null && actionLabel != null) {
             Spacer(Modifier.height(24.dp))
-            OphotoPrimaryButton(onClick = onAction!!) {
-                Text(actionLabel!!)
+            val action = onAction
+            val label = actionLabel
+            OphotoPrimaryButton(onClick = action) {
+                Text(label)
             }
         }
     }
@@ -273,8 +361,8 @@ fun GlassSurface(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Color(0xAD0B0D12), shape)
-            .border(0.8.dp, Color.White.copy(alpha = 0.10f), shape),
+            .background(GlassBlur, shape)
+            .border(0.8.dp, GlassBorder, shape),
         content = { content() },
     )
 }
@@ -308,7 +396,7 @@ fun OphotoDivider(
 @Composable
 fun OinfoChip(
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Info,
+    icon: ImageVector = Icons.Default.Info,
     tint: Color = CyanTelemetry,
     modifier: Modifier = Modifier,
 ) {
@@ -326,5 +414,45 @@ fun OinfoChip(
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
         )
+    }
+}
+
+@Composable
+fun PremiumHeroHeader(
+    eyebrow: String,
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    stats: List<Pair<String, String>> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF1B2232), Color(0xFF0F121A))), RoundedCornerShape(18.dp))
+            .border(1.dp, Color.White.copy(0.07f), RoundedCornerShape(18.dp))
+            .padding(16.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(26.dp).clip(CircleShape).background(BrassGold.copy(0.18f)), contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = BrassGold, modifier = Modifier.size(14.dp))
+                    }
+                    Text(eyebrow, style = MaterialTheme.typography.labelSmall, color = BrassGold, letterSpacing = 1.2.sp)
+                }
+                Text(title, style = MaterialTheme.typography.titleLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                if (stats.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        stats.forEach { (k, v) ->
+                            Column {
+                                Text(k, style = MaterialTheme.typography.labelSmall, color = TextMuted, fontSize = 9.sp)
+                                Text(v, style = MaterialTheme.typography.labelMedium, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
