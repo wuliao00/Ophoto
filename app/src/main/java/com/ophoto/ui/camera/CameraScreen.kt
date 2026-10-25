@@ -27,6 +27,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.FlashOn
@@ -58,6 +62,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -240,6 +246,11 @@ fun CameraScreen(
     }
 
     val rollDegrees = rememberDeviceRollDegrees(enabled = settings.showLeveler)
+    val animatedRoll by animateFloatAsState(targetValue = rollDegrees, animationSpec = tween(220, easing = FastOutSlowInEasing), label = "rollSmooth")
+    // Viewfinder luminance boost — makes dark indoor preview feel like XPan bright viewfinder
+    var shutterFlash by remember { mutableStateOf(false) }
+    val flashAlpha by animateFloatAsState(targetValue = if (shutterFlash) 0.92f else 0f, animationSpec = tween(if (shutterFlash) 80 else 420), label = "flash")
+    val shutterScale by animateFloatAsState(targetValue = if (shutterFlash) 0.90f else 1f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 520f), label = "shutterScale")
 
     fun triggerCapture() {
         scope.launch {
@@ -351,6 +362,10 @@ fun CameraScreen(
                     createdAt = System.currentTimeMillis(),
                 ),
             )
+            // Pro shutter flash: 80ms burst + auto-fade
+            shutterFlash = true
+            delay(90)
+            shutterFlash = false
             Toast.makeText(
                 context,
                 "已保存 ${activePreset?.name ?: "原片"} · ${exif.summaryLine()}",
@@ -384,11 +399,12 @@ fun CameraScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(Brush.verticalGradient(listOf(Color(0xFF0B0E14), ObsidianBg)))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        // 1. Top Optical Quick Control Bar (Doc §11)
+        // 1. Top Optical Quick Control Bar — glass pill with brass inset
+
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
@@ -511,15 +527,15 @@ fun CameraScreen(
             }
         }
 
-        // 2. Central Optical Viewfinder Area (OpenGL ES 3.0 3D LUT + Overlays)
+        // 2. Central Optical Viewfinder Area — XPan luminous edition
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(vertical = 6.dp)
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFF06070A))
-                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp)),
+                .background(Brush.verticalGradient(listOf(Color(0xFF141A26), Color(0xFF070A0F), Color(0xFF06070A))))
+                .border(1.1.dp, BrassGold.copy(alpha = 0.22f), RoundedCornerShape(18.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -609,11 +625,23 @@ fun CameraScreen(
                     }
                 }
 
-                // Composition Guides + Horizon Leveler + Touch Focus Box
+                // Subtle brass vignette — lifts dark indoor scene without washing preview
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(Color.Transparent, Color(0xFF0B0D12).copy(alpha = 0.28f)),
+                                radius = 900f
+                            ), RoundedCornerShape(18.dp)
+                        )
+                )
+                // Shutter flash burst
+                if (flashAlpha > 0.01f) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
+                // Composition Guides + Horizon Leveler (animated) + Touch Focus Box
                 CompositionOverlayCanvas(
                     guideType = settings.compositionGuide,
                     showLeveler = settings.showLeveler,
-                    rollDegrees = rollDegrees,
+                    rollDegrees = animatedRoll,
                     focusTapNormalized = focusConfig.normalizedTapX?.let { x ->
                         focusConfig.normalizedTapY?.let { y -> x to y }
                     },
@@ -835,16 +863,17 @@ fun CameraScreen(
                 }
             }
 
-            // Center: Tactile Two-Stage Precision Shutter Button
+            // Center: Tactile Two-Stage Precision Shutter Button — animated scale + brass glow
             Box(
                 modifier = Modifier
                     .size(86.dp)
+                    .scale(shutterScale)
                     .clip(CircleShape)
                     .background(
                         when {
                             isRecordingVideo -> GlowOrange.copy(alpha = 0.45f)
                             captureMode == CameraCaptureMode.VIDEO -> ShutterOrange.copy(alpha = 0.25f)
-                            else -> GlowBrass.copy(alpha = 0.30f)
+                            else -> GlowBrass.copy(alpha = 0.28f)
                         },
                         CircleShape,
                     )
