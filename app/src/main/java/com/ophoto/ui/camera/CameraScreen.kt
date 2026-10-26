@@ -126,6 +126,12 @@ private enum class ProDialTab(val label: String) {
     METERING("测光"),
 }
 
+private enum class ViewfinderBgMode(val label: String, val bg: Color, val scrim: Color, val border: Color) {
+    DARK(\"暗房黑\", Color(0xFF0F131C), Color(0xFF06070A).copy(0.55f), Color.White.copy(0.08f)),
+    STEEL(\"钢蓝灰\", Color(0xFF1E2638), Color(0xFF0B0F1A).copy(0.42f), Color(0xFF6B7A95).copy(0.22f)),
+    STUDIO(\"影棚灰\", Color(0xFFE6EAF2), Color(0xFF0F131C).copy(0.58f), Color(0xFFB9C2D6).copy(0.9f)),
+}
+
 private val ISO_STOPS = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400, 12800)
 private val SHUTTER_STOPS = listOf(
     1.0 / 8000.0,
@@ -182,9 +188,10 @@ fun CameraScreen(
     var showFilterTray by remember { mutableStateOf(true) }
     var activeProDial by remember { mutableStateOf(ProDialTab.ISO) }
 
+    var viewfinderBg by remember { mutableStateOf(ViewfinderBgMode.STEEL) }
     var selectedPresetId by remember { mutableStateOf<String?>(BuiltInPresets.ALL.first().id) }
     var filterStrength by remember { mutableFloatStateOf(settings.defaultFilterStrength) }
-    var exposureConfig by remember { mutableStateOf(ExposureConfig(manualMode = false, iso = 100, shutterSeconds = 1.0 / 125.0)) }
+    var exposureConfig by remember { mutableStateOf(ExposureConfig(manualMode = false, iso = 100, shutterSeconds = 1.0 / 125.0, evCompensation = 0.2f)) }
     var focusConfig by remember { mutableStateOf(FocusConfig()) }
     var wbConfig by remember { mutableStateOf(WhiteBalanceConfig()) }
     var activeCameraId by remember {
@@ -399,12 +406,18 @@ fun CameraScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            // 提亮 2 档，避免全屏黑洞感
-            .background(Brush.verticalGradient(listOf(Color(0xFF10151F), Color(0xFF0D1017), ObsidianBg)))
+            // 背景随取景框模式同步切换：STEEL/STUDIO 时全屏提亮
+            .background(
+                when (viewfinderBg) {
+                    ViewfinderBgMode.DARK -> Brush.verticalGradient(listOf(Color(0xFF10151F), Color(0xFF0D1017), ObsidianBg))
+                    ViewfinderBgMode.STEEL -> Brush.verticalGradient(listOf(Color(0xFF1A2235), Color(0xFF162033), Color(0xFF111827)))
+                    ViewfinderBgMode.STUDIO -> Brush.verticalGradient(listOf(Color(0xFFF2F4F8), Color(0xFFE6EAF2), Color(0xFFD9DFEB)))
+                }
+            )
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        // 1. Top Optical Quick Control Bar — glass pill with brass inset
+        // 1. Top Optical Quick Control Bar — 玻璃胶囊 + 背景切换
 
         LazyRow(
             modifier = Modifier
@@ -499,6 +512,15 @@ fun CameraScreen(
                     },
                 )
             }
+            item {
+                TopHudChip(
+                    label = "背景 ${viewfinderBg.label}",
+                    active = viewfinderBg != ViewfinderBgMode.DARK,
+                    onClick = {
+                        viewfinderBg = ViewfinderBgMode.entries[(viewfinderBg.ordinal + 1) % ViewfinderBgMode.entries.size]
+                    },
+                )
+            }
         }
 
         // Optional Field Assistant Banner when loaded from Shot Card
@@ -528,16 +550,15 @@ fun CameraScreen(
             }
         }
 
-        // 2. Central Optical Viewfinder — 真正亮堂的专业取景器 (不再全黑)
+        // 2. Central Optical Viewfinder — 背景可切换（暗房/钢蓝/影棚），默认钢蓝提亮
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(vertical = 6.dp)
                 .clip(RoundedCornerShape(14.dp))
-                // 由深海灰蓝替代纯黑，让边框与取景区分层可见
-                .background(Color(0xFF0F131C))
-                .border(0.9.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+                .background(viewfinderBg.bg)
+                .border(0.9.dp, viewfinderBg.border, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -634,25 +655,26 @@ fun CameraScreen(
                     }
                 }
 
-                // 顶部微高光 + 底部信息底幕，不再压暗画面中央
-                // 顶光：模拟棚灯反光，让画面有立体感
+                // 高光与底幕随背景模式自适应：STUDIO 时高光更亮、底幕加深以保对比
+                val highlightAlpha = when (viewfinderBg) {
+                    ViewfinderBgMode.DARK -> 0.05f
+                    ViewfinderBgMode.STEEL -> 0.07f
+                    ViewfinderBgMode.STUDIO -> 0.10f
+                }
                 Box(
                     Modifier.fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.White.copy(alpha = 0.05f), Color.Transparent, Color.Transparent),
+                                colors = listOf(Color.White.copy(alpha = highlightAlpha), Color.Transparent, Color.Transparent),
                                 endY = 700f
                             )
                         )
                 )
-                // 底幕：仅在底部 22% 高度加轻度 Scrim，保证 HUD 文字可读但不遮挡画面
                 Box(
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(88.dp)
-                        .background(
-                            Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF06070A).copy(alpha = 0.55f)))
-                        )
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, viewfinderBg.scrim)))
                 )
                 // 快门闪光
                 if (flashAlpha > 0.01f) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
