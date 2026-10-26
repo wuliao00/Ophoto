@@ -127,9 +127,9 @@ private enum class ProDialTab(val label: String) {
 }
 
 private enum class ViewfinderBgMode(val label: String, val bg: Color, val scrim: Color, val border: Color) {
-    DARK(\"暗房黑\", Color(0xFF0F131C), Color(0xFF06070A).copy(0.55f), Color.White.copy(0.08f)),
-    STEEL(\"钢蓝灰\", Color(0xFF1E2638), Color(0xFF0B0F1A).copy(0.42f), Color(0xFF6B7A95).copy(0.22f)),
-    STUDIO(\"影棚灰\", Color(0xFFE6EAF2), Color(0xFF0F131C).copy(0.58f), Color(0xFFB9C2D6).copy(0.9f)),
+    DARK("暗房黑", Color(0xFF0F131C), Color(0xFF06070A).copy(0.55f), Color.White.copy(0.08f)),
+    STEEL("钢蓝灰", Color(0xFF1E2638), Color(0xFF0B0F1A).copy(0.42f), Color(0xFF6B7A95).copy(0.22f)),
+    STUDIO("影棚灰", Color(0xFFE6EAF2), Color(0xFF0F131C).copy(0.58f), Color(0xFFB9C2D6).copy(0.9f)),
 }
 
 private val ISO_STOPS = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400, 12800)
