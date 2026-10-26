@@ -399,7 +399,8 @@ fun CameraScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0B0E14), ObsidianBg)))
+            // 提亮 2 档，避免全屏黑洞感
+            .background(Brush.verticalGradient(listOf(Color(0xFF10151F), Color(0xFF0D1017), ObsidianBg)))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -527,15 +528,16 @@ fun CameraScreen(
             }
         }
 
-        // 2. Central Optical Viewfinder Area — XPan luminous edition
+        // 2. Central Optical Viewfinder — 真正亮堂的专业取景器 (不再全黑)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(vertical = 6.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF141A26), Color(0xFF070A0F), Color(0xFF06070A))))
-                .border(1.1.dp, BrassGold.copy(alpha = 0.22f), RoundedCornerShape(18.dp)),
+                .clip(RoundedCornerShape(14.dp))
+                // 由深海灰蓝替代纯黑，让边框与取景区分层可见
+                .background(Color(0xFF0F131C))
+                .border(0.9.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -575,8 +577,15 @@ fun CameraScreen(
                             }
                         },
                         update = { glView ->
+                            // 将 EV 补偿与色温实时合并进预览，避免预设自带的负曝光导致全黑
+                            val liveParams = activePreset?.let { p ->
+                                p.params.copy(
+                                    exposureEv = (p.params.exposureEv + exposureConfig.evCompensation).coerceIn(-2f, 2f),
+                                    temperature = (p.params.temperature + ((wbConfig.manualKelvin - 5500) / 90)).coerceIn(-100, 100)
+                                )
+                            } ?: com.ophoto.engine.filter.FilterParams()
                             glView.updateRenderState(
-                                params = activePreset?.params ?: com.ophoto.engine.filter.FilterParams(),
+                                params = liveParams,
                                 strength = if (activePreset == null) 0f else filterStrength,
                                 lut = activeLut,
                                 peaking = peakingColor,
@@ -625,17 +634,27 @@ fun CameraScreen(
                     }
                 }
 
-                // Subtle brass vignette — lifts dark indoor scene without washing preview
+                // 顶部微高光 + 底部信息底幕，不再压暗画面中央
+                // 顶光：模拟棚灯反光，让画面有立体感
                 Box(
                     Modifier.fillMaxSize()
                         .background(
-                            Brush.radialGradient(
-                                colors = listOf(Color.Transparent, Color(0xFF0B0D12).copy(alpha = 0.28f)),
-                                radius = 900f
-                            ), RoundedCornerShape(18.dp)
+                            Brush.verticalGradient(
+                                colors = listOf(Color.White.copy(alpha = 0.05f), Color.Transparent, Color.Transparent),
+                                endY = 700f
+                            )
                         )
                 )
-                // Shutter flash burst
+                // 底幕：仅在底部 22% 高度加轻度 Scrim，保证 HUD 文字可读但不遮挡画面
+                Box(
+                    Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(88.dp)
+                        .background(
+                            Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF06070A).copy(alpha = 0.55f)))
+                        )
+                )
+                // 快门闪光
                 if (flashAlpha > 0.01f) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
                 // Composition Guides + Horizon Leveler (animated) + Touch Focus Box
                 CompositionOverlayCanvas(
