@@ -97,6 +97,9 @@ jobs:
           RC=$?
           cat release-build.log
           if [ $RC -ne 0 ]; then
+            grep -E '(^e:|^error:|^\* What went wrong:|^> |^Caused by:|FAILED|Exception|Execution failed|OutOfMemory)' release-build.log | head -n 35 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done || true
             DIAG=$(tail -n 35 release-build.log | python3 -c 'import sys; print("%0A".join(l.rstrip() for l in sys.stdin)[:3200])')
             echo "::error title=RELEASE_BUILD_DIAG::${DIAG}"
             exit $RC
