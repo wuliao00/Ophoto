@@ -4,6 +4,9 @@ import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.PreviewView
+import androidx.lifecycle.Observer
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,7 +18,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -92,10 +94,7 @@ import com.ophoto.engine.camera.ViewfinderAspectRatio
 import com.ophoto.engine.camera.WhiteBalanceConfig
 import com.ophoto.engine.camera.WhiteBalanceMode
 import com.ophoto.engine.filter.FilterPreset
-import com.ophoto.engine.metadata.CaptureExifMetadata
 import com.ophoto.engine.metadata.MetadataEngine
-import com.ophoto.engine.render.FocusPeakingColor
-import com.ophoto.engine.render.GlLutPreviewView
 import com.ophoto.ui.theme.AlertCrimson
 import com.ophoto.ui.theme.BrassGold
 import com.ophoto.ui.theme.ControlPillBg
@@ -124,12 +123,6 @@ private enum class ProDialTab(val label: String) {
     WB("色温 WB"),
     FOCUS("对焦 MF"),
     METERING("测光"),
-}
-
-private enum class ViewfinderBgMode(val label: String, val bg: Color, val scrim: Color, val border: Color) {
-    DARK("暗房黑", Color(0xFF0F131C), Color(0xFF06070A).copy(0.55f), Color.White.copy(0.08f)),
-    STEEL("钢蓝灰", Color(0xFF1E2638), Color(0xFF0B0F1A).copy(0.42f), Color(0xFF6B7A95).copy(0.22f)),
-    STUDIO("影棚灰", Color(0xFFE6EAF2), Color(0xFF0F131C).copy(0.58f), Color(0xFFB9C2D6).copy(0.9f)),
 }
 
 private val ISO_STOPS = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400, 12800)
@@ -177,21 +170,19 @@ fun CameraScreen(
         }
     }
 
-    var captureMode by remember { mutableStateOf(CameraCaptureMode.PRO) }
+    var captureMode by remember { mutableStateOf(CameraCaptureMode.PHOTO) }
     var flashSetting by remember { mutableStateOf(FlashSetting.OFF) }
-    var aspectRatio by remember { mutableStateOf(ViewfinderAspectRatio.RATIO_4_3) }
+    val aspectRatio = ViewfinderAspectRatio.RATIO_4_3
     var timerSeconds by remember { mutableIntStateOf(0) }
     var countdownRemaining by remember { mutableIntStateOf(0) }
     var burstCount by remember { mutableIntStateOf(1) }
     var bracketMode by remember { mutableStateOf(false) }
-    var peakingColor by remember { mutableStateOf(FocusPeakingColor.OFF) }
-    var showFilterTray by remember { mutableStateOf(true) }
-    var activeProDial by remember { mutableStateOf(ProDialTab.ISO) }
+    var showFilterTray by remember { mutableStateOf(false) }
+    var activeProDial by remember { mutableStateOf(ProDialTab.EV) }
 
-    var viewfinderBg by remember { mutableStateOf(ViewfinderBgMode.STEEL) }
-    var selectedPresetId by remember { mutableStateOf<String?>(BuiltInPresets.ALL.first().id) }
+    var selectedPresetId by remember { mutableStateOf<String?>(null) }
     var filterStrength by remember { mutableFloatStateOf(settings.defaultFilterStrength) }
-    var exposureConfig by remember { mutableStateOf(ExposureConfig(manualMode = false, iso = 100, shutterSeconds = 1.0 / 125.0, evCompensation = 0.2f)) }
+    var exposureConfig by remember { mutableStateOf(ExposureConfig(manualMode = false, iso = 100, shutterSeconds = 1.0 / 125.0, evCompensation = 0.7f)) }
     var focusConfig by remember { mutableStateOf(FocusConfig()) }
     var wbConfig by remember { mutableStateOf(WhiteBalanceConfig()) }
     var activeCameraId by remember {
@@ -200,6 +191,43 @@ fun CameraScreen(
     var zoomRatio by remember { mutableFloatStateOf(1.0f) }
     var isRecordingVideo by remember { mutableStateOf(false) }
     var activeFieldBanner by remember { mutableStateOf<String?>(null) }
+
+    // TextureView-backed PreviewView composes reliably beneath Compose overlays on
+    // devices where a separate GLSurfaceView layer was hidden by the UI window.
+    val previewView = remember(context) {
+        PreviewView(context).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+    }
+    var previewStreaming by remember { mutableStateOf(false) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+    var retryCount by remember { mutableIntStateOf(0) }
+    DisposableEffect(previewView, lifecycleOwner) {
+        val observer = Observer<PreviewView.StreamState> { state ->
+            previewStreaming = state == PreviewView.StreamState.STREAMING
+            if (previewStreaming) previewError = null
+        }
+        previewView.previewStreamState.observe(lifecycleOwner, observer)
+        onDispose { previewView.previewStreamState.removeObserver(observer) }
+    }
+    LaunchedEffect(hasCameraPerm, activeCameraId, retryCount) {
+        if (hasCameraPerm) {
+            previewStreaming = false
+            previewError = null
+            try {
+                container.cameraEngine.setExposure(exposureConfig)
+                container.cameraEngine.bindSession(lifecycleOwner, previewView.surfaceProvider, activeCameraId)
+                container.cameraEngine.setZoomRatio(zoomRatio)
+                delay(8000)
+                if (!previewStreaming) previewError = "相机未输出画面，请重试或检查系统相机权限"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                previewError = "无法启动相机，请检查权限或关闭其他相机应用"
+            }
+        }
+    }
 
     val activePreset: FilterPreset? = remember(presets, selectedPresetId) {
         presets.firstOrNull { it.id == selectedPresetId }
@@ -228,50 +256,35 @@ fun CameraScreen(
         }
     }
 
-    // Synthetic studio preview & real-time histogram fallback so HUD works even without hardware camera
-    val baseSampleBitmap = remember { BuiltInPresets.createSamplePreviewBitmap(640, 480) }
-    var simulatedPreviewBitmap by remember { mutableStateOf(baseSampleBitmap) }
-    var histogramData by remember { mutableStateOf(container.filterEngine.computeHistogram(baseSampleBitmap)) }
     var lastCapturedThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-
-    LaunchedEffect(activePreset, filterStrength, exposureConfig.evCompensation, wbConfig.manualKelvin) {
-        withContext(Dispatchers.Default) {
-            val basePreset = activePreset ?: FilterPreset(id = "neutral", name = "原片")
-            val combined = basePreset.copy(
-                params = basePreset.params.copy(
-                    exposureEv = (basePreset.params.exposureEv + exposureConfig.evCompensation).coerceIn(-2f, 2f),
-                    temperature = (basePreset.params.temperature + ((wbConfig.manualKelvin - 5500) / 80)).coerceIn(-100, 100),
-                ),
-            )
-            container.filterEngine.loadFilterWithExplicitLut(combined, activeLut)
-            container.filterEngine.setStrength(if (activePreset == null) 1f else filterStrength)
-            val graded = container.filterEngine.applyToImage(baseSampleBitmap)
-            val hist = container.filterEngine.computeHistogram(graded)
-            simulatedPreviewBitmap = graded
-            histogramData = hist
-        }
-    }
 
     val rollDegrees = rememberDeviceRollDegrees(enabled = settings.showLeveler)
     val animatedRoll by animateFloatAsState(targetValue = rollDegrees, animationSpec = tween(220, easing = FastOutSlowInEasing), label = "rollSmooth")
-    // Viewfinder luminance boost — makes dark indoor preview feel like XPan bright viewfinder
     var shutterFlash by remember { mutableStateOf(false) }
     val flashAlpha by animateFloatAsState(targetValue = if (shutterFlash) 0.92f else 0f, animationSpec = tween(if (shutterFlash) 80 else 420), label = "flash")
     val shutterScale by animateFloatAsState(targetValue = if (shutterFlash) 0.90f else 1f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 520f), label = "shutterScale")
 
     fun triggerCapture() {
         scope.launch {
+            if (!isRecordingVideo && !hasCameraPerm) {
+                permLauncher.launch(CameraPermissionHelper.requiredCameraPermissions(includeAudio = false).toTypedArray())
+                return@launch
+            }
+            if (!isRecordingVideo && !previewStreaming) {
+                Toast.makeText(context, "相机尚未就绪，请等待或重试", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
             if (captureMode == CameraCaptureMode.VIDEO) {
                 if (isRecordingVideo) {
                     val videoRes = container.cameraEngine.stopVideoRecord()
                     isRecordingVideo = false
                     Toast.makeText(
                         context,
-                        "视频已保存 (${videoRes.durationMillis / 1000}s)",
+                        videoRes.errorMessage ?: "视频已保存 (${videoRes.durationMillis / 1000}s)",
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
-                    isRecordingVideo = true
+                    try {
                     container.cameraEngine.startVideoRecord(
                         VideoConfig(
                             qualityTag = settings.videoResolutionTag,
@@ -279,6 +292,10 @@ fun CameraScreen(
                             stabilization = settings.videoStabilization,
                         ),
                     )
+                    isRecordingVideo = true
+                    } catch (e: Exception) {
+                        Toast.makeText(context, e.message ?: "无法开始录像", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 return@launch
             }
@@ -306,10 +323,10 @@ fun CameraScreen(
                 bracketStops = bracketMode,
             )
 
-            val rawCapture = if (hasCameraPerm) {
-                container.cameraEngine.takePhoto(config).bitmap ?: simulatedPreviewBitmap
-            } else {
-                simulatedPreviewBitmap
+            val photoResult = container.cameraEngine.takePhoto(config)
+            val rawCapture = photoResult.bitmap ?: run {
+                Toast.makeText(context, photoResult.errorMessage ?: "拍摄失败，请重试", Toast.LENGTH_SHORT).show()
+                return@launch
             }
 
             val finalBitmap = withContext(Dispatchers.Default) {
@@ -325,18 +342,6 @@ fun CameraScreen(
 
             lastCapturedThumb = finalBitmap
             val eqFocal = (24f * zoomRatio).roundToInt()
-            val exif = CaptureExifMetadata(
-                make = container.hardwareProfile.brand.ifBlank { "OPPO" },
-                model = container.hardwareProfile.displayTitle,
-                iso = exposureConfig.iso,
-                exposureTimeSec = exposureConfig.shutterSeconds,
-                aperture = 1.8f,
-                focalLengthMm = 5.6f * zoomRatio,
-                focalLength35mm = eqFocal,
-                kelvin = wbConfig.manualKelvin,
-                filterName = activePreset?.name,
-                filterStrength = filterStrength,
-            )
             val fileBase = MediaStoreSaver.formatFileName(
                 template = settings.fileNameTemplate,
                 modeTag = captureMode.name,
@@ -347,14 +352,17 @@ fun CameraScreen(
                 bitmap = finalBitmap,
                 fileBaseName = fileBase,
                 format = ExportImageFormat.JPEG,
-                exifMetadata = exif,
+                exifMetadata = null,
                 stripLocation = !settings.saveGpsLocation,
             )
-            val uriStr = savedUri?.toString() ?: "memory://$fileBase.jpg"
+            val uriStr = savedUri?.toString() ?: run {
+                Toast.makeText(context, "照片保存失败，请检查存储权限和空间", Toast.LENGTH_LONG).show()
+                return@launch
+            }
             container.mediaRepository.recordCapture(
                 CaptureRecordEntity(
                     filePath = uriStr,
-                    rawPath = if (settings.enableRawWhenSupported) "$fileBase.dng" else null,
+                    rawPath = null,
                     thumbnailPath = uriStr,
                     captureMode = captureMode.label,
                     cameraId = activeCameraId,
@@ -375,7 +383,7 @@ fun CameraScreen(
             shutterFlash = false
             Toast.makeText(
                 context,
-                "已保存 ${activePreset?.name ?: "原片"} · ${exif.summaryLine()}",
+                "已保存 ${activePreset?.name ?: "原片"}",
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -406,18 +414,11 @@ fun CameraScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            // 背景随取景框模式同步切换：STEEL/STUDIO 时全屏提亮
-            .background(
-                when (viewfinderBg) {
-                    ViewfinderBgMode.DARK -> Brush.verticalGradient(listOf(Color(0xFF10151F), Color(0xFF0D1017), ObsidianBg))
-                    ViewfinderBgMode.STEEL -> Brush.verticalGradient(listOf(Color(0xFF1A2235), Color(0xFF162033), Color(0xFF111827)))
-                    ViewfinderBgMode.STUDIO -> Brush.verticalGradient(listOf(Color(0xFFF2F4F8), Color(0xFFE6EAF2), Color(0xFFD9DFEB)))
-                }
-            )
+            .background(Brush.verticalGradient(listOf(Color(0xFF202B3B), Color(0xFF101722), Color(0xFF0B1018))))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        // 1. Top Optical Quick Control Bar — 玻璃胶囊 + 背景切换
+        // 1. Quick controls
 
         LazyRow(
             modifier = Modifier
@@ -429,21 +430,27 @@ fun CameraScreen(
         ) {
             item {
                 TopHudChip(
-                    label = "闪光 ${flashSetting.label}",
-                    active = flashSetting != FlashSetting.OFF,
+                    label = "曝光 %+.1f".format(exposureConfig.evCompensation),
+                    active = exposureConfig.evCompensation != 0f,
                     onClick = {
-                        val all = FlashSetting.entries
-                        flashSetting = all[(all.indexOf(flashSetting) + 1) % all.size]
+                        val next = when {
+                            exposureConfig.evCompensation < 0.3f -> 0.7f
+                            exposureConfig.evCompensation < 1f -> 1.3f
+                            exposureConfig.evCompensation < 1.6f -> 2f
+                            else -> 0f
+                        }
+                        exposureConfig = exposureConfig.copy(manualMode = false, aeLocked = false, evCompensation = next)
+                        container.cameraEngine.setExposure(exposureConfig)
                     },
                 )
             }
             item {
                 TopHudChip(
-                    label = aspectRatio.label,
-                    active = aspectRatio != ViewfinderAspectRatio.RATIO_4_3,
+                    label = "闪光 ${flashSetting.label}",
+                    active = flashSetting != FlashSetting.OFF,
                     onClick = {
-                        val all = ViewfinderAspectRatio.entries
-                        aspectRatio = all[(all.indexOf(aspectRatio) + 1) % all.size]
+                        val all = FlashSetting.entries
+                        flashSetting = all[(all.indexOf(flashSetting) + 1) % all.size]
                     },
                 )
             }
@@ -491,36 +498,7 @@ fun CameraScreen(
                     },
                 )
             }
-            item {
-                TopHudChip(
-                    label = if (peakingColor == FocusPeakingColor.OFF) "峰值 关" else peakingColor.label,
-                    active = peakingColor != FocusPeakingColor.OFF,
-                    onClick = {
-                        val all = FocusPeakingColor.entries
-                        peakingColor = all[(all.indexOf(peakingColor) + 1) % all.size]
-                    },
-                )
-            }
-            item {
-                TopHudChip(
-                    label = "斑马纹",
-                    active = settings.showZebraStripes,
-                    onClick = {
-                        scope.launch {
-                            container.preferences.update { it.copy(showZebraStripes = !it.showZebraStripes) }
-                        }
-                    },
-                )
-            }
-            item {
-                TopHudChip(
-                    label = "背景 ${viewfinderBg.label}",
-                    active = viewfinderBg != ViewfinderBgMode.DARK,
-                    onClick = {
-                        viewfinderBg = ViewfinderBgMode.entries[(viewfinderBg.ordinal + 1) % ViewfinderBgMode.entries.size]
-                    },
-                )
-            }
+
         }
 
         // Optional Field Assistant Banner when loaded from Shot Card
@@ -550,20 +528,19 @@ fun CameraScreen(
             }
         }
 
-        // 2. Central Optical Viewfinder — 背景可切换（暗房/钢蓝/影棚），默认钢蓝提亮
+        // 2. Camera viewfinder
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(vertical = 6.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(viewfinderBg.bg)
-                .border(0.9.dp, viewfinderBg.border, RoundedCornerShape(14.dp)),
+                .background(Color(0xFF243244))
+                .border(1.dp, Color(0xFF61738B), RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .aspectRatio(aspectRatio.ratioValue.coerceIn(0.45f, 2.4f), matchHeightConstraintsFirst = false)
                     .fillMaxSize()
                     .pointerInput(settings.touchToCapture) {
                         detectTapGestures { offset ->
@@ -584,45 +561,24 @@ fun CameraScreen(
             ) {
                 if (hasCameraPerm) {
                     AndroidView(
-                        factory = { ctx ->
-                            GlLutPreviewView(ctx).apply {
-                                setSurfaceProviderListener { surfaceProvider ->
-                                    scope.launch {
-                                        container.cameraEngine.bindSession(
-                                            lifecycleOwner = lifecycleOwner,
-                                            surfaceProvider = surfaceProvider,
-                                            cameraId = activeCameraId,
-                                        )
-                                    }
-                                }
+                        factory = { previewView },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (!previewStreaming) {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center)
+                                .background(Color(0xDD172433), RoundedCornerShape(18.dp))
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(previewError ?: "正在启动相机…", color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium)
+                            if (previewError != null) {
+                                FilledTonalButton(onClick = { retryCount++ }) { Text("重试相机") }
                             }
-                        },
-                        update = { glView ->
-                            // 将 EV 补偿与色温实时合并进预览，避免预设自带的负曝光导致全黑
-                            val liveParams = activePreset?.let { p ->
-                                p.params.copy(
-                                    exposureEv = (p.params.exposureEv + exposureConfig.evCompensation).coerceIn(-2f, 2f),
-                                    temperature = (p.params.temperature + ((wbConfig.manualKelvin - 5500) / 90)).coerceIn(-100, 100)
-                                )
-                            } ?: com.ophoto.engine.filter.FilterParams()
-                            glView.updateRenderState(
-                                params = liveParams,
-                                strength = if (activePreset == null) 0f else filterStrength,
-                                lut = activeLut,
-                                peaking = peakingColor,
-                                peakingLevel = 0.6f,
-                                zebra = settings.showZebraStripes,
-                            )
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                        }
+                    }
                 } else {
-                    Image(
-                        bitmap = simulatedPreviewBitmap.asImageBitmap(),
-                        contentDescription = "实时滤镜预览",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -641,41 +597,23 @@ fun CameraScreen(
                             )
                             Spacer(Modifier.height(10.dp))
                             Text(
-                                text = "光学仿真预览",
+                                text = "需要相机权限",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = BrassGold,
                             )
                             Text(
-                                text = "点击下方快门区域授权真机摄像头",
+                                text = "授权后才能显示取景画面",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(horizontal = 16.dp),
                             )
+                            FilledTonalButton(onClick = {
+                                permLauncher.launch(CameraPermissionHelper.requiredCameraPermissions(includeAudio = false).toTypedArray())
+                            }) { Text("授权相机") }
                         }
                     }
                 }
 
-                // 高光与底幕随背景模式自适应：STUDIO 时高光更亮、底幕加深以保对比
-                val highlightAlpha = when (viewfinderBg) {
-                    ViewfinderBgMode.DARK -> 0.05f
-                    ViewfinderBgMode.STEEL -> 0.07f
-                    ViewfinderBgMode.STUDIO -> 0.10f
-                }
-                Box(
-                    Modifier.fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.White.copy(alpha = highlightAlpha), Color.Transparent, Color.Transparent),
-                                endY = 700f
-                            )
-                        )
-                )
-                Box(
-                    Modifier.align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(88.dp)
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, viewfinderBg.scrim)))
-                )
                 // 快门闪光
                 if (flashAlpha > 0.01f) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
                 // Composition Guides + Horizon Leveler (animated) + Touch Focus Box
@@ -688,13 +626,14 @@ fun CameraScreen(
                     },
                 )
 
-                // Live Histogram Overlay (Top-Left)
-                if (settings.showHistogram) {
-                    LiveHistogramHud(
-                        histogram = histogramData,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(10.dp),
+                if (hasCameraPerm && previewStreaming) {
+                    Text(
+                        text = if (activePreset == null) "原片预览" else "原片预览 · 滤镜拍后应用",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
+                            .background(Color(0xA616222F), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                     )
                 }
 
@@ -702,14 +641,16 @@ fun CameraScreen(
                 if (settings.showParameterHud) {
                     val shutterStr = MetadataEngine.formatShutterSpeed(exposureConfig.shutterSeconds)
                     val evStr = "%+.1f EV".format(exposureConfig.evCompensation)
-                    val hudLine = "${(24 * zoomRatio).roundToInt()}mm · $shutterStr · ISO ${exposureConfig.iso} · $evStr · ${wbConfig.manualKelvin}K"
+                    val hudLine = if (exposureConfig.manualMode) {
+                        "$shutterStr · ISO ${exposureConfig.iso} · 手动曝光"
+                    } else "自动曝光 · $evStr"
                     Text(
                         text = hudLine,
                         style = MaterialTheme.typography.labelSmall,
                         color = TextPrimary,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(10.dp)
+                            .padding(start = 10.dp, bottom = 53.dp)
                             .background(Color(0xAD0B0D12), RoundedCornerShape(8.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
@@ -779,7 +720,7 @@ fun CameraScreen(
             )
         }
 
-        // 4. Real-Time Filter Ribbon + Strength Slider (Doc §3 & §11)
+        // 4. Capture filter controls (camera preview is unfiltered)
         if (showFilterTray) {
             OphotoCard(
                 modifier = Modifier
@@ -793,7 +734,7 @@ fun CameraScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "实时滤镜 · ${activePreset?.name ?: "原片直出"}",
+                        text = "拍照滤镜 · ${activePreset?.name ?: "原片直出"}（预览为原片）",
                         style = MaterialTheme.typography.labelMedium,
                         color = BrassGold,
                     )
@@ -961,7 +902,6 @@ fun CameraScreen(
                             if (activeCameraId == "0") "1" else "0"
                         }
                         activeCameraId = nextId
-                        scope.launch { container.cameraEngine.openCamera(nextId) }
                     },
                     modifier = Modifier
                         .size(44.dp)

@@ -72,7 +72,7 @@ object MediaStoreSaver {
         val tempFile = File(context.cacheDir, "save_${System.nanoTime()}.${format.extension}")
         try {
             tempFile.outputStream().use { out ->
-                bitmap.compress(format.compressFormat, quality.coerceIn(50, 100), out)
+                check(bitmap.compress(format.compressFormat, quality.coerceIn(50, 100), out)) { "Image compression failed" }
             }
             if (format == ExportImageFormat.JPEG) {
                 MetadataEngine.applyExifToFile(
@@ -98,8 +98,12 @@ object MediaStoreSaver {
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
                 ?: return@withContext null
 
-            resolver.openOutputStream(uri)?.use { out ->
-                tempFile.inputStream().use { ins -> ins.copyTo(out) }
+            try {
+                val output = resolver.openOutputStream(uri) ?: error("Unable to open image output")
+                output.use { out -> tempFile.inputStream().use { ins -> ins.copyTo(out) } }
+            } catch (e: Exception) {
+                resolver.delete(uri, null, null)
+                throw e
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
