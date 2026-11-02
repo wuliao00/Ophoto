@@ -34,7 +34,9 @@ jobs:
           fi
 
       - name: Run unit tests, lint, debug APK & instrumented test compilation
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace 2>&1 | tee /tmp/gradlew-output.log
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace 2>&1 | tee /tmp/gradlew-output.log
 
       - name: Dump Gradle output on failure
         if: failure()
@@ -47,6 +49,7 @@ jobs:
 
       - name: Assemble ProGuard/R8 release APK & verify baseline profile
         run: |
+          set -o pipefail
           ./gradlew assembleRelease --no-daemon 2>&1 | tee /tmp/release-build.log
           test -f app/src/main/baseline-prof.txt
           RELEASE_APK=$(ls app/build/outputs/apk/release/app-release*.apk | head -n 1)

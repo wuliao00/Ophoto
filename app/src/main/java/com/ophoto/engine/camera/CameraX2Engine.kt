@@ -45,7 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 import kotlin.math.ln
-import kotlin.math.roundToInt
 
 /**
  * Production CameraX + Camera2Interop Engine (Doc §4.1, §5, §8):
@@ -103,22 +102,33 @@ class CameraX2Engine(
             .build()
         val videoCapture = VideoCapture.withOutput(recorder)
 
-        runCatching {
+        provider.unbindAll()
+        activeCamera = null
+        imageCaptureUseCase = null
+        videoCaptureUseCase = null
+        // Some devices cannot support preview + still + video simultaneously. Keep
+        // photography usable on those devices instead of silently showing a black preview.
+        var videoAvailable = true
+        val camera = try {
+            provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture, videoCapture)
+        } catch (first: Exception) {
+            SafeLogger.warn("CameraX2Engine", "Video combination unsupported; retrying photo session")
             provider.unbindAll()
-            activeCamera = provider.bindToLifecycle(
-                lifecycleOwner,
-                selector,
-                preview,
-                imageCapture,
-                videoCapture,
-            )
-            previewUseCase = preview
-            imageCaptureUseCase = imageCapture
-            videoCaptureUseCase = videoCapture
-            applyCamera2CaptureOptions()
-        }.onFailure { err ->
-            SafeLogger.error("CameraX2Engine", "Failed to bind camera session", err)
+            videoAvailable = false
+            try {
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
+            } catch (second: Exception) {
+                SafeLogger.error("CameraX2Engine", "Failed to bind camera session", second)
+                throw second
+            }
         }
+        activeCamera = camera
+        previewUseCase = preview
+        imageCaptureUseCase = imageCapture
+        videoCaptureUseCase = if (videoAvailable) videoCapture else null
+        // Apply the requested compensation after binding; setting it before a camera
+        // exists only stores the value. Do not apply it again in a preview shader.
+        setExposure(currentExposure)
         Unit
     }
 
@@ -234,7 +244,7 @@ class CameraX2Engine(
 
     @SuppressLint("MissingPermission")
     override suspend fun startVideoRecord(config: VideoConfig) {
-        val videoCapture = videoCaptureUseCase ?: return
+        val videoCapture = videoCaptureUseCase ?: throw IllegalStateException("当前设备不支持此录像组合")
         if (activeRecording != null) return
 
         val values = ContentValues().apply {
@@ -284,9 +294,10 @@ class CameraX2Engine(
         val cam = activeCamera ?: return
         val state = cam.cameraInfo.exposureState
         if (state.isExposureCompensationSupported && !exposure.manualMode) {
-            val step = state.exposureCompensationStep.toFloat().coerceAtLeast(0.1f)
-            val index = (exposure.evCompensation / step).roundToInt()
-                .coerceIn(state.exposureCompensationRange.lower, state.exposureCompensationRange.upper)
+            val index = exposureCompensationIndex(
+                exposure.evCompensation, state.exposureCompensationStep.toFloat(),
+                state.exposureCompensationRange.lower, state.exposureCompensationRange.upper,
+            )
             cam.cameraControl.setExposureCompensationIndex(index)
         }
         applyCamera2CaptureOptions()
@@ -372,9 +383,8 @@ class CameraX2Engine(
             optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
             optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
             optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, ns)
-        } else {
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, currentExposure.aeLocked)
+        } else if (currentExposure.aeLocked) {
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
         }
 
         // 2. Focus (AF Continuous Picture vs Manual Focus Diopter)
@@ -384,18 +394,12 @@ class CameraX2Engine(
                 CaptureRequest.LENS_FOCUS_DISTANCE,
                 currentFocus.focusDistanceDiopters.coerceIn(0f, caps.maxFocusDiopters),
             )
-        } else {
-            optionsBuilder.setCaptureRequestOption(
-                CaptureRequest.CONTROL_AF_MODE,
-                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
-            )
         }
 
         // 3. White Balance (Auto, Scene Presets, or Manual Kelvin RGGB vector)
         when (currentWb.mode) {
             WhiteBalanceMode.AUTO -> {
-                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
-                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, currentWb.awbLocked)
+                if (currentWb.awbLocked) optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
             }
             WhiteBalanceMode.DAYLIGHT -> optionsBuilder.setCaptureRequestOption(
                 CaptureRequest.CONTROL_AWB_MODE,

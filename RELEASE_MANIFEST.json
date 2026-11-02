@@ -1,7 +1,7 @@
 {
-  "version": "1.4.3",
-  "version_code": 9,
-  "tag": "v1.4.3",
+  "version": "1.4.4",
+  "version_code": 10,
+  "tag": "v1.4.4",
   "channel": "stable",
-  "codename": "Viewfinder Steel Switch Fix"
+  "codename": "Camera Preview Reliability"
 }
