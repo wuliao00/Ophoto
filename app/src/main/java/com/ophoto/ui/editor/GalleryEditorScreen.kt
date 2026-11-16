@@ -677,7 +677,9 @@ fun GalleryEditorScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                // 全局标签栏高度：工具条与胶囊浮在标签栏之上
+                .padding(bottom = 66.dp),
         ) {
             // 检查器面板：从工具条向上延伸（Depth）
             androidx.compose.animation.AnimatedVisibility(

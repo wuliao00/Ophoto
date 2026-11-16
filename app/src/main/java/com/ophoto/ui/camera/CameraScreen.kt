@@ -222,7 +222,6 @@ fun CameraScreen(
     var burstCount by remember { mutableIntStateOf(1) }
     var bracketMode by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<CameraSheet?>(null) }
-    var activeProDial by remember { mutableStateOf(ProDialTab.EV) }
 
     var selectedPresetId by remember { mutableStateOf<String?>(null) }
     var filterStrength by remember { mutableFloatStateOf(settings.defaultFilterStrength) }
@@ -752,6 +751,8 @@ fun CameraScreen(
                                     .background(if (active) BrassGold else Color.Transparent)
                                     .clickable {
                                         captureMode = mode
+                                        // 选「专业」时直接展开参数面板，少一次点击
+                                        if (mode == CameraCaptureMode.PRO) sheet = CameraSheet.PRO
                                         wake()
                                     }
                                     .padding(horizontal = 9.dp, vertical = 6.dp),
