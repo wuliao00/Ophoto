@@ -77,8 +77,8 @@ android {
         applicationId = "com.ophoto"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.5.0"
+        versionCode = 12
+        versionName = "1.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

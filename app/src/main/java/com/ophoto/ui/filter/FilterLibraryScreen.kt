@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -130,14 +131,17 @@ fun MasterPresetCard(
     onExportCube: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    // 每张卡片的缩略图由「真实摄影底片 + 该预设」现算，杜绝同一张测试图重复出现
-    val previewGraded = remember(preset.id, preset.params, sampleBitmap) {
-        runCatching {
-            val engine = com.ophoto.engine.filter.FilterEngineImpl()
-            engine.loadFilter(preset)
-            engine.setStrength(preset.defaultStrength)
-            engine.applyToImage(sampleBitmap)
-        }.getOrDefault(sampleBitmap)
+    // 每张卡片的缩略图由「真实摄影底片 + 该预设」现算；放到后台线程，先显示原片再淡入
+    var previewGraded by remember(preset.id, sampleBitmap) { mutableStateOf(sampleBitmap) }
+    LaunchedEffect(preset.id, preset.params, sampleBitmap) {
+        previewGraded = withContext(Dispatchers.Default) {
+            runCatching {
+                val engine = com.ophoto.engine.filter.FilterEngineImpl()
+                engine.loadFilter(preset)
+                engine.setStrength(preset.defaultStrength)
+                engine.applyToImage(sampleBitmap)
+            }.getOrDefault(sampleBitmap)
+        }
     }
     val accent = remember(preset.accentHex) {
         runCatching { Color(android.graphics.Color.parseColor(preset.accentHex)) }.getOrDefault(BrassGold)
@@ -293,8 +297,9 @@ fun FilterLibraryScreen(
 
     // 真实摄影底片：三张按分类自动匹配（人像 / 夜景 / 风光），不再用几何测试图
     val scenePhotos = remember {
+        // 卡片缩略图只需要 720px 级别；整幅 1440×1080 会显著拖慢首帧
         DemoPhoto.entries.mapNotNull { p ->
-            runCatching { DemoPhotos.load(context, p) }.getOrNull()
+            runCatching { DemoPhotos.loadScaled(context, p, maxEdge = 720) }.getOrNull()
         }
     }
     val baseSample = scenePhotos.getOrNull(2) ?: scenePhotos.firstOrNull()

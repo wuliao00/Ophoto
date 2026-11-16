@@ -189,6 +189,7 @@ fun GalleryEditorScreen(
         )
     }
     var hasUserImage by remember { mutableStateOf(false) }
+    var lastLoadedUri by remember { mutableStateOf<String?>(null) }
     var activeExif by remember { mutableStateOf(CaptureExifMetadata(model = container.hardwareProfile.displayTitle)) }
     var recipe by remember { mutableStateOf(PhotoEditRecipe(preset = BuiltInPresets.ALL.first())) }
     var renderedBitmap by remember { mutableStateOf(sourceBitmap) }
@@ -367,9 +368,22 @@ fun GalleryEditorScreen(
         }
     }
 
+    // 首次进入暗房：如果刚在相机里拍过照，直接显示那张成片
+    LaunchedEffect(Unit) {
+        val pending = container.lastCapturedMediaUri
+        if (pending != null && !hasUserImage && pending != lastLoadedUri) {
+            val uri = runCatching { Uri.parse(pending) }.getOrNull()
+            if (uri != null) {
+                handlePickedUri(uri)
+                lastLoadedUri = pending
+            }
+        }
+    }
+
     // 相机拍完直接进入这里（真实成片）
     LaunchedEffect(container) {
         container.editorMediaTarget.collect { uriStr ->
+            lastLoadedUri = uriStr
             val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return@collect
             handlePickedUri(uri)
             chromeVisible = true

@@ -29,6 +29,40 @@ object DemoPhotos {
 
     private val cache = ConcurrentHashMap<String, Bitmap>()
 
+    /** 按最大边长解码（缩略图/示例面板用），避免把 1440×1080 的整幅图塞进小控件。 */
+    fun loadScaled(context: Context, photo: DemoPhoto = DemoPhoto.LANDSCAPE, maxEdge: Int = 720): Bitmap {
+        val key = "${photo.assetName}@$maxEdge"
+        cache[key]?.let { return it }
+        val decoded = runCatching {
+            // 先读尺寸，再按 2 的幂采样，避免整幅解码
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.assets.open(photo.assetName).use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+            context.assets.open(photo.assetName).use { stream ->
+                BitmapFactory.decodeStream(
+                    stream,
+                    null,
+                    BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    },
+                )
+            }
+        }.getOrNull()
+        val result = decoded ?: load(context, photo)
+        if (result.width > maxEdge) {
+            val ratio = maxEdge.toFloat() / result.width
+            val scaled = runCatching {
+                Bitmap.createScaledBitmap(result, maxEdge, (result.height * ratio).toInt().coerceAtLeast(1), true)
+            }.getOrDefault(result)
+            cache[key] = scaled
+            return scaled
+        }
+        cache[key] = result
+        return result
+    }
+
     /** 按场景取一张示例底片（失败时回退到最小可用渐变，绝不让 UI 崩）。 */
     fun load(context: Context, photo: DemoPhoto = DemoPhoto.LANDSCAPE): Bitmap =
         cache[photo.assetName] ?: decode(context, photo) ?: fallbackGradient().also {
