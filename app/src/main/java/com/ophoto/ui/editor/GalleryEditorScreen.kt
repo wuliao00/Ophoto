@@ -133,6 +133,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.ophoto.data.repository.DemoPhoto
+import com.ophoto.data.repository.DemoPhotos
+import com.ophoto.ui.theme.MaterialHairline
+import com.ophoto.ui.theme.MaterialRegular
+import com.ophoto.ui.theme.MaterialThick
+import com.ophoto.ui.theme.OphotoIconButton
+import com.ophoto.ui.theme.OphotoShape
+import com.ophoto.ui.theme.TextOnAccent
 
 // ------------------------------------------------------------------
 // 专业暗房 · 稳定、安全、零闪退 + 高级视觉重塑
@@ -162,9 +178,18 @@ fun GalleryEditorScreen(
     val scope = rememberCoroutineScope()
     val presets by container.filterRepository.allPresetsFlow.collectAsState(initial = BuiltInPresets.ALL)
     val settings by container.preferences.settingsFlow.collectAsState(initial = com.ophoto.data.local.UserSettings())
+    val captureHistory by container.mediaRepository.captureRecordsFlow.collectAsState(initial = emptyList())
 
     // --- Core image states ---
-    var sourceBitmap by remember { mutableStateOf(BuiltInPresets.createSamplePreviewBitmap(900, 675)) }
+    // 真实样片作为「空状态」底图；真正拍照/选图后即被替换。
+    var sourceBitmap by remember {
+        mutableStateOf(
+            runCatching { DemoPhotos.load(context, DemoPhoto.LANDSCAPE) }
+                .getOrElse { BuiltInPresets.createSamplePreviewBitmap(900, 675) },
+        )
+    }
+    var hasUserImage by remember { mutableStateOf(false) }
+    var lastLoadedUri by remember { mutableStateOf<String?>(null) }
     var activeExif by remember { mutableStateOf(CaptureExifMetadata(model = container.hardwareProfile.displayTitle)) }
     var recipe by remember { mutableStateOf(PhotoEditRecipe(preset = BuiltInPresets.ALL.first())) }
     var renderedBitmap by remember { mutableStateOf(sourceBitmap) }
@@ -180,6 +205,10 @@ fun GalleryEditorScreen(
     var stripExifLocation by remember { mutableStateOf(true) }
     var isExporting by remember { mutableStateOf(false) }
     var batchProgress by remember { mutableStateOf<Int?>(null) }
+
+    // Deference：鉴赏模式下所有控件隐去；点画面再唤回。
+    var chromeVisible by remember { mutableStateOf(true) }
+    var sheetVisible by remember { mutableStateOf(false) }
 
     val undoStack = remember { mutableStateListOf<PhotoEditRecipe>() }
     val redoStack = remember { mutableStateListOf<PhotoEditRecipe>() }
@@ -203,8 +232,6 @@ fun GalleryEditorScreen(
     }
 
     // --- Robust Photo Picker with fallback for OPPO / ColorOS / old API ---
-    // Photo Picker (PickVisualMedia) may be unavailable on many Chinese ROMs or API<33.
-    // We detect availability and fallback to GetContent.
     val photoPickerAvailable = remember(context) {
         runCatching { ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context) }.getOrDefault(false)
     }
@@ -216,14 +243,12 @@ fun GalleryEditorScreen(
             var meta: CaptureExifMetadata = CaptureExifMetadata(model = container.hardwareProfile.displayTitle)
             var error: String? = null
             try {
-                // Try to read EXIF first (small, safe)
                 try {
                     context.contentResolver.openInputStream(uri)?.use { ins ->
                         meta = MetadataEngine.readMetadataFromStream(ins)
                     }
                 } catch (_: Throwable) { /* ignore exif failure */ }
 
-                // Decode bitmap with sampling via FileDescriptor when possible (more stable for large files)
                 bmp = try {
                     context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                         decodeSampledBitmapFromFd(pfd.fileDescriptor, 2200)
@@ -234,7 +259,6 @@ fun GalleryEditorScreen(
                     bmp = context.contentResolver.openInputStream(uri)?.use { ins ->
                         val bytes = try { ins.readBytes() } catch (_: Throwable) { null }
                         if (bytes != null && bytes.isNotEmpty()) {
-                            // Guard huge files (>25MB) – sample more aggressively
                             val maxDim = if (bytes.size > 18_000_000) 1600 else 2200
                             try { decodeSampledBitmap(bytes, maxDim) } catch (e: OutOfMemoryError) { null }
                         } else null
@@ -265,11 +289,12 @@ fun GalleryEditorScreen(
             loadErrorMsg = null
             val (bmp, meta) = loadBitmapFromUri(uri)
             if (bmp != null) {
-                // Recycle previous source if not the initial sample? Avoid recycling still displayed bitmaps.
                 sourceBitmap = bmp
                 activeExif = meta
+                hasUserImage = true
                 undoStack.clear()
                 redoStack.clear()
+                chromeVisible = true
             }
             isLoadingImage = false
         }
@@ -282,9 +307,7 @@ fun GalleryEditorScreen(
     val getContentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         handlePickedUri(uri)
     }
-    // 批量选择仅在系统支持 Photo Picker 时注册，避免在 API26-32/ColorOS 上注册时直接崩溃
     val batchPickAvailable = photoPickerAvailable
-    // 条件式注册：利用 Compose 的稳定分支特性（batchPickAvailable 在会话内不变，不会触发 hooks 数量抖动）
     val pickMultipleResultLauncher = if (batchPickAvailable) {
         rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
             if (uris.isEmpty()) return@rememberLauncherForActivityResult
@@ -326,7 +349,6 @@ fun GalleryEditorScreen(
                 getContentLauncher.launch("image/*")
             }
         } catch (e: Exception) {
-            // Ultimate fallback
             try { getContentLauncher.launch("image/*") } catch (_: Exception) {
                 Toast.makeText(context, "无法打开系统相册，请检查权限或更新系统", Toast.LENGTH_SHORT).show()
             }
@@ -346,11 +368,25 @@ fun GalleryEditorScreen(
         }
     }
 
-    // Also listen for media dispatched from CameraScreen / capture flow
+    // 首次进入暗房：如果刚在相机里拍过照，直接显示那张成片
+    LaunchedEffect(Unit) {
+        val pending = container.lastCapturedMediaUri
+        if (pending != null && !hasUserImage && pending != lastLoadedUri) {
+            val uri = runCatching { Uri.parse(pending) }.getOrNull()
+            if (uri != null) {
+                handlePickedUri(uri)
+                lastLoadedUri = pending
+            }
+        }
+    }
+
+    // 相机拍完直接进入这里（真实成片）
     LaunchedEffect(container) {
         container.editorMediaTarget.collect { uriStr ->
+            lastLoadedUri = uriStr
             val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return@collect
             handlePickedUri(uri)
+            chromeVisible = true
         }
     }
 
@@ -359,417 +395,634 @@ fun GalleryEditorScreen(
         derivedStateOf { "${sourceBitmap.width} × ${sourceBitmap.height}" }
     }
     val exifSummary by remember(activeExif, recipe) {
-        derivedStateOf { activeExif.summaryLine() + " · " + (recipe.preset?.name ?: "原片") + " ${ (recipe.presetStrength*100).roundToInt()}%" }
+        derivedStateOf {
+            buildString {
+                append(activeExif.summaryLine())
+                append(" · ")
+                append(recipe.preset?.name ?: "原片")
+                append(" ${(recipe.presetStrength * 100).roundToInt()}%")
+            }
+        }
     }
 
-    // Root layout: immersive darkroom
-    Column(
+    fun doExport() {
+        if (isExporting) return
+        scope.launch {
+            isExporting = true
+            val name = MediaStoreSaver.formatFileName(settings.fileNameTemplate, "EDIT", recipe.preset?.name)
+            val outBmp = renderedBitmap
+            val uri = withContext(Dispatchers.IO) {
+                MediaStoreSaver.saveBitmapToGallery(
+                    context, outBmp, name, exportFormat,
+                    exifMetadata = activeExif.copy(
+                        filterName = recipe.preset?.name,
+                        filterStrength = recipe.presetStrength,
+                    ),
+                    stripLocation = stripExifLocation,
+                )
+            }
+            if (uri != null) {
+                container.mediaRepository.recordEditStep(
+                    EditHistoryEntity(
+                        mediaId = uri.toString(),
+                        filterId = recipe.preset?.id,
+                        paramsJson = "strength=${recipe.presetStrength};frame=${recipe.frameStyle.name}",
+                        cropJson = "crop=${recipe.cropPreset.name};rot=${recipe.rotationQuarterTurns}",
+                        createdAt = System.currentTimeMillis(),
+                        version = undoStack.size + 1,
+                    ),
+                )
+                container.mediaRepository.recordCapture(
+                    com.ophoto.data.local.entity.CaptureRecordEntity(
+                        filePath = uri.toString(),
+                        rawPath = null,
+                        thumbnailPath = uri.toString(),
+                        captureMode = "编辑",
+                        cameraId = "-",
+                        iso = 0,
+                        shutter = "-",
+                        ev = 0f,
+                        wb = 0,
+                        focalLength = 0,
+                        gpsEnabled = !stripExifLocation,
+                        filterId = recipe.preset?.id,
+                        filterStrength = recipe.presetStrength,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+                Toast.makeText(context, "已导出至相册 Pictures/Ophoto · $name.${exportFormat.extension}", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "导出失败，请检查存储权限", Toast.LENGTH_SHORT).show()
+            }
+            isExporting = false
+        }
+    }
+
+    val animatedAlpha by animateFloatAsState(targetValue = if (isRendering) 0.80f else 1f, label = "renderAlpha")
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 版面：照片是唯一主角。画布全屏，控件以材质浮于其上。
+    // ─────────────────────────────────────────────────────────────────────
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(Color.Black),
     ) {
-        // ---- Premium Top Bar ----
-        EditorTopBar(
-            imageCountText = imageResolutionText,
-            exifSummary = exifSummary,
-            canUndo = undoStack.isNotEmpty(),
-            canRedo = redoStack.isNotEmpty(),
-            isCompare = showOriginalCompare,
-            onPick = { launchSinglePicker() },
-            onUndo = {
-                if (undoStack.isNotEmpty()) {
-                    val prev = undoStack.removeAt(undoStack.lastIndex)
-                    redoStack.add(recipe)
-                    recipe = prev
-                }
-            },
-            onRedo = {
-                if (redoStack.isNotEmpty()) {
-                    val nxt = redoStack.removeAt(redoStack.lastIndex)
-                    undoStack.add(recipe)
-                    recipe = nxt
-                }
-            },
-            onToggleCompare = { showOriginalCompare = !showOriginalCompare },
-            onExport = {
-                if (isExporting) return@EditorTopBar
-                scope.launch {
-                    isExporting = true
-                    val name = MediaStoreSaver.formatFileName(settings.fileNameTemplate, "EDIT", recipe.preset?.name)
-                    val outBmp = renderedBitmap
-                    val uri = withContext(Dispatchers.IO) {
-                        MediaStoreSaver.saveBitmapToGallery(
-                            context, outBmp, name, exportFormat,
-                            exifMetadata = activeExif.copy(filterName = recipe.preset?.name, filterStrength = recipe.presetStrength),
-                            stripLocation = stripExifLocation
-                        )
-                    }
-                    if (uri != null) {
-                        container.mediaRepository.recordEditStep(
-                            EditHistoryEntity(
-                                mediaId = uri.toString(),
-                                filterId = recipe.preset?.id,
-                                paramsJson = "strength=${recipe.presetStrength};frame=${recipe.frameStyle.name}",
-                                cropJson = "crop=${recipe.cropPreset.name};rot=${recipe.rotationQuarterTurns}",
-                                createdAt = System.currentTimeMillis(),
-                                version = undoStack.size + 1
-                            )
-                        )
-                        Toast.makeText(context, "已导出至相册 Pictures/Ophoto · $name.${exportFormat.extension}", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "导出失败，请检查存储权限", Toast.LENGTH_SHORT).show()
-                    }
-                    isExporting = false
-                }
-            },
-            isExporting = isExporting || isLoadingImage,
-        )
-
-        // ---- Canvas + Metadata HUD ----
+        // ── 画布（点击空白处切换控制条显隐） ──────────────────────────────
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 10.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFF05070B))
-                .border(1.dp, HairlineBorder, RoundedCornerShape(18.dp))
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            chromeVisible = !chromeVisible
+                            if (!chromeVisible) sheetVisible = false
+                        },
+                        onDoubleTap = { showOriginalCompare = !showOriginalCompare },
+                    )
+                },
+            contentAlignment = Alignment.Center,
         ) {
-            // Image display（带渲染态淡化过渡，animatedAlpha 已应用于透明度）
             val displayBmp = if (showOriginalCompare) sourceBitmap else renderedBitmap
-            val animatedAlpha by animateFloatAsState(targetValue = if (isRendering) 0.72f else 1f, label = "renderAlpha")
+            Image(
+                bitmap = displayBmp.asImageBitmap(),
+                contentDescription = "编辑预览",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(animatedAlpha),
+            )
 
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Image(
-                    bitmap = displayBmp.asImageBitmap(),
-                    contentDescription = "编辑预览",
-                    contentScale = ContentScale.Fit,
+            if (showGridOverlay) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val c = Color.White.copy(alpha = 0.20f)
+                    for (i in 1..2) {
+                        drawLine(c, Offset(w * i / 3f, 0f), Offset(w * i / 3f, h), 0.8.dp.toPx())
+                        drawLine(c, Offset(0f, h * i / 3f), Offset(w, h * i / 3f), 0.8.dp.toPx())
+                    }
+                }
+            }
+
+            // 空状态：没有用户照片时，用一句轻提示替换掉「检测 900x675」的 hack
+            if (!hasUserImage && !isLoadingImage) {
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(6.dp)
-                        .alpha(animatedAlpha)
-                        .background(Color(0xFF07080C), RoundedCornerShape(12.dp))
-                )
+                        .align(Alignment.Center)
+                        .padding(horizontal = 32.dp)
+                        .clip(OphotoShape.Card)
+                        .background(MaterialRegular)
+                        .border(0.7.dp, MaterialHairline, OphotoShape.Card)
+                        .clickable { launchSinglePicker() }
+                        .padding(horizontal = 22.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Rounded.AddPhotoAlternate,
+                        contentDescription = null,
+                        tint = BrassGold,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("从相册导入一张原片", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "已为你载入一张示例底片，可以在上面直接试滤镜",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextMuted,
+                    )
+                }
+            }
 
-                // Subtle gradient vignette for depth
+            if (isLoadingImage) {
                 Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color(0x22000000)),
-                                startY = 0f, endY = Float.POSITIVE_INFINITY
-                            )
-                        )
-                )
-
-                // Grid overlay toggle
-                if (showGridOverlay) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val w = size.width; val h = size.height
-                        val c = Color.White.copy(alpha = 0.18f)
-                        for (i in 1..2) {
-                            drawLine(c, Offset(w*i/3f, 0f), Offset(w*i/3f, h), 0.8.dp.toPx())
-                            drawLine(c, Offset(0f, h*i/3f), Offset(w, h*i/3f), 0.8.dp.toPx())
-                        }
-                    }
-                }
-
-                // Top HUD badges
-                Row(
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Modifier.fillMaxSize().background(Color(0xB308090B)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    GlassBadge(text = imageResolutionText, icon = Icons.Rounded.Image)
-                    if (showOriginalCompare) {
-                        GlassBadge(text = "原片对比", color = BrassGold, textColor = ObsidianBg)
-                    }
-                    if (isRendering) {
-                        GlassBadge(text = "渲染中…", color = OpticalEmerald)
-                    }
-                }
-                Row(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    GlassIconButton(icon = Icons.Rounded.GridOn, active = showGridOverlay, onClick = { showGridOverlay = !showGridOverlay })
-                    GlassIconButton(icon = Icons.Rounded.Compare, active = showOriginalCompare, onClick = { showOriginalCompare = !showOriginalCompare })
-                }
-
-                // Loading veil
-                if (isLoadingImage) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(Color(0xB2080A10), RoundedCornerShape(18.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CircularProgressIndicator(color = BrassGold, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
-                            Text("正在高清解码原片…", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
-                        }
-                    }
-                }
-
-                // Error state overlay（非阻塞、带重试，避免 !! 空指针）
-                if (loadErrorMsg != null && !isLoadingImage) {
-                    val err = loadErrorMsg
-                    if (err != null) {
-                        Box(
-                            Modifier
-                                .align(Alignment.Center)
-                                .padding(16.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF1A1F2A))
-                                .border(1.dp, ShutterOrange.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .padding(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = ShutterOrange, modifier = Modifier.size(18.dp))
-                                Text(err, style = MaterialTheme.typography.bodySmall, color = TextPrimary, modifier = Modifier.weight(1f))
-                                Text("重试", color = BrassGold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { launchSinglePicker() }.padding(4.dp))
-                            }
-                        }
-                    }
-                }
-
-                // Empty / onboarding hint when showing default sample (detect by size 900x675 exact?)
-                if (sourceBitmap.width == 900 && sourceBitmap.height == 675 && presets.isNotEmpty() && !isLoadingImage) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(10.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xCC0B0F1A))
-                            .border(0.8.dp, BrassGold.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                            .clickable { launchSinglePicker() }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, tint = BrassGold, modifier = Modifier.size(16.dp))
-                            Text("点击此处从相册导入高清原片开始创作", style = MaterialTheme.typography.labelMedium, color = BrassGold)
-                        }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = BrassGold, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Text("正在解码原片…", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                     }
                 }
             }
 
-            // Bottom EXIF footer inside canvas
-            Row(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .background(Color(0xD60A0D14))
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(exifSummary, style = MaterialTheme.typography.labelSmall, color = BrassGold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(activeExif.model.ifBlank { "未知机型" } + " · " + (if (stripExifLocation) "已抹除GPS隐私" else "保留位置信息"), style = MaterialTheme.typography.labelSmall, color = TextMuted, fontSize = 10.sp)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (batchProgress != null) {
-                        Text("批量 $batchProgress/10", style = MaterialTheme.typography.labelSmall, color = OpticalEmerald)
-                    }
-                    Text("${undoStack.size} 步历史", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            loadErrorMsg?.let { err ->
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 120.dp, start = 16.dp, end = 16.dp)
+                        .clip(OphotoShape.Inner)
+                        .background(Color(0xE61A1118))
+                        .border(0.7.dp, ShutterOrange.copy(alpha = 0.45f), OphotoShape.Inner)
+                        .clickable { launchSinglePicker() }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.WarningAmber, null, tint = ShutterOrange, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(err, style = MaterialTheme.typography.bodySmall, color = TextPrimary, modifier = Modifier.weight(1f))
+                    Text("重试", color = BrassGold, style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
 
-        // ---- Tool Tab Switcher (pro segmented) ----
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(InstrumentDeck)
-                .border(1.dp, HairlineBorder, RoundedCornerShape(12.dp))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+        // ── 顶部：返回/导入 + 撤销重做 + 导出（材质条，隐去时仅留渐隐黑场） ──
+        androidx.compose.animation.AnimatedVisibility(
+            visible = chromeVisible,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            DarkroomToolTab.entries.forEach { tab ->
-                val isActive = activeToolTab == tab
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OphotoIconButton(
+                    onClick = { launchSinglePicker() },
+                    icon = Icons.Rounded.AddPhotoAlternate,
+                    size = 38.dp,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        recipe.preset?.name ?: "原片",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        imageResolutionText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.55f),
+                    )
+                }
+                if (isRendering) {
+                    CircularProgressIndicator(
+                        color = BrassGold,
+                        strokeWidth = 1.5.dp,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                OphotoIconButton(
+                    onClick = {
+                        if (undoStack.isNotEmpty()) {
+                            val prev = undoStack.removeAt(undoStack.lastIndex)
+                            redoStack.add(recipe)
+                            recipe = prev
+                        }
+                    },
+                    icon = Icons.Rounded.Undo,
+                    tint = if (undoStack.isNotEmpty()) TextPrimary else TextMuted,
+                    size = 38.dp,
+                )
+                Spacer(Modifier.width(6.dp))
+                OphotoIconButton(
+                    onClick = {
+                        if (redoStack.isNotEmpty()) {
+                            val nxt = redoStack.removeAt(redoStack.lastIndex)
+                            undoStack.add(recipe)
+                            recipe = nxt
+                        }
+                    },
+                    icon = Icons.Rounded.Redo,
+                    tint = if (redoStack.isNotEmpty()) TextPrimary else TextMuted,
+                    size = 38.dp,
+                )
+                Spacer(Modifier.width(10.dp))
                 Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(if (isActive) BrassGold else Color.Transparent)
-                        .clickable { activeToolTab = tab }
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(38.dp)
+                        .clip(OphotoShape.Chip)
+                        .background(BrassGold)
+                        .clickable { doExport() }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(tab.icon, contentDescription = null, tint = if (isActive) ObsidianBg else TextSecondary, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(tab.label, style = MaterialTheme.typography.labelSmall, color = if (isActive) ObsidianBg else TextSecondary, fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Rounded.SaveAlt, null, tint = TextOnAccent, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (isExporting) "导出中" else "导出",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextOnAccent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
 
-        // ---- Controls Deck (scrollable, pro) ----
-        Box(
+        // 对比模式角标：只在需要时出现
+        if (showOriginalCompare && chromeVisible) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 74.dp)
+                    .clip(OphotoShape.Chip)
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            ) {
+                Text("原片", style = MaterialTheme.typography.labelSmall, color = BrassGold)
+            }
+        }
+
+        // ── 底部：胶片条（最近成片）+ 工具条 + 展开的检查器 ─────────────────
+        Column(
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 420.dp)
-                .padding(horizontal = 10.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(InstrumentDeck)
-                .border(1.dp, HairlineBorder, RoundedCornerShape(16.dp))
+                // 全局标签栏高度：工具条与胶囊浮在标签栏之上
+                .padding(bottom = 66.dp),
         ) {
+            // 检查器面板：从工具条向上延伸（Depth）
+            androidx.compose.animation.AnimatedVisibility(
+                visible = sheetVisible && chromeVisible,
+                enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 420f)) { it / 2 } + fadeIn(tween(140)),
+                exit = slideOutVertically(tween(180)) { it / 2 } + fadeOut(tween(140)),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(OphotoShape.Sheet)
+                        .background(MaterialThick)
+                        .border(0.7.dp, MaterialHairline, OphotoShape.Sheet)
+                        .heightIn(max = 340.dp)
+                        .padding(top = 14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            activeToolTab.icon,
+                            null,
+                            tint = BrassGold,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            activeToolTab.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "完成",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = BrassGold,
+                            modifier = Modifier
+                                .clip(OphotoShape.Chip)
+                                .clickable { sheetVisible = false }
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 18.dp)
+                            .padding(bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        when (activeToolTab) {
+                            DarkroomToolTab.FILTER -> FilterToolsPanel(
+                                presets = presets,
+                                selectedPreset = recipe.preset,
+                                strength = recipe.presetStrength,
+                                sourceBitmap = sourceBitmap,
+                                onSelectPreset = { p -> pushRecipeUpdate(recipe.copy(preset = p)) },
+                                onClearPreset = { pushRecipeUpdate(recipe.copy(preset = null)) },
+                                onStrength = { v -> pushRecipeUpdate(recipe.copy(presetStrength = v)) },
+                                onBatch = { launchBatchPicker() },
+                            )
+                            DarkroomToolTab.CURVES -> CurvesToolsPanel(
+                                recipe = recipe,
+                                curveChannel = curveChannel,
+                                onChannelChange = { curveChannel = it },
+                                onPush = { pushRecipeUpdate(it) },
+                            )
+                            DarkroomToolTab.HSL -> HslToolsPanel(
+                                recipe = recipe,
+                                selectedBand = selectedHslBand,
+                                onSelectBand = { selectedHslBand = it },
+                                onRecipe = { pushRecipeUpdate(it) },
+                            )
+                            DarkroomToolTab.GEOMETRY -> GeometryToolsPanel(
+                                recipe = recipe,
+                                onRecipe = { pushRecipeUpdate(it) },
+                            )
+                            DarkroomToolTab.EXPORT -> ExportToolsPanel(
+                                recipe = recipe,
+                                exportFormat = exportFormat,
+                                stripLocation = stripExifLocation,
+                                onRecipe = { pushRecipeUpdate(it) },
+                                onFormat = { exportFormat = it },
+                                onToggleGps = { stripExifLocation = !stripExifLocation },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 控制条区域：材质底 + 顶部渐隐，与照片无缝衔接
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xE6000000), Color(0xF508090B)),
+                        ),
+                    )
+                    .navigationBarsPadding()
+                    .padding(bottom = 6.dp),
             ) {
-                when (activeToolTab) {
-                    DarkroomToolTab.FILTER -> FilterToolsPanel(
-                        presets = presets,
-                        selectedPreset = recipe.preset,
-                        strength = recipe.presetStrength,
-                        sourceBitmap = sourceBitmap,
-                        onSelectPreset = { p -> pushRecipeUpdate(recipe.copy(preset = p)) },
-                        onClearPreset = { pushRecipeUpdate(recipe.copy(preset = null)) },
-                        onStrength = { v -> pushRecipeUpdate(recipe.copy(presetStrength = v)) },
-                        onBatch = { launchBatchPicker() },
-                    )
-                    DarkroomToolTab.CURVES -> CurvesToolsPanel(
-                        recipe = recipe,
-                        curveChannel = curveChannel,
-                        onChannelChange = { curveChannel = it },
-                        onPush = { pushRecipeUpdate(it) },
-                    )
-                    DarkroomToolTab.HSL -> HslToolsPanel(
-                        recipe = recipe,
-                        selectedBand = selectedHslBand,
-                        onSelectBand = { selectedHslBand = it },
-                        onRecipe = { pushRecipeUpdate(it) },
-                    )
-                    DarkroomToolTab.GEOMETRY -> GeometryToolsPanel(
-                        recipe = recipe,
-                        onRecipe = { pushRecipeUpdate(it) },
-                    )
-                    DarkroomToolTab.EXPORT -> ExportToolsPanel(
-                        recipe = recipe,
-                        exportFormat = exportFormat,
-                        stripLocation = stripExifLocation,
-                        onRecipe = { pushRecipeUpdate(it) },
-                        onFormat = { exportFormat = it },
-                        onToggleGps = { stripExifLocation = !stripExifLocation },
-                    )
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = chromeVisible,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(150)),
+                ) {
+                    Column {
+                        // 最近成片胶片条（有此前的拍摄记录才出现）
+                        if (captureHistory.isNotEmpty()) {
+                            RecentCapturesStrip(
+                                records = captureHistory.take(12),
+                                onPick = { rec ->
+                                    val uri = runCatching { Uri.parse(rec.filePath) }.getOrNull()
+                                    handlePickedUri(uri)
+                                },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        // 工具条：一行图标 + 名称，选中项文字转金色（不使用大色块）
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            DarkroomToolTab.entries.forEach { tab ->
+                                val isActive = activeToolTab == tab && sheetVisible
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(OphotoShape.Inner)
+                                        .clickable {
+                                            if (activeToolTab == tab && sheetVisible) {
+                                                sheetVisible = false
+                                            } else {
+                                                activeToolTab = tab
+                                                sheetVisible = true
+                                            }
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Icon(
+                                        tab.icon,
+                                        contentDescription = tab.label,
+                                        tint = if (isActive) BrassGold else Color.White.copy(alpha = 0.72f),
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        tab.label.substringBefore(" ").take(4),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isActive) BrassGold else Color.White.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                            // 比较 / 网格 作为工具条右侧的两个即时动作
+                            Column(
+                                modifier = Modifier
+                                    .weight(0.8f)
+                                    .clip(OphotoShape.Inner)
+                                    .clickable { showOriginalCompare = !showOriginalCompare }
+                                    .padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Compare,
+                                    contentDescription = "对比原片",
+                                    tint = if (showOriginalCompare) BrassGold else Color.White.copy(alpha = 0.72f),
+                                    modifier = Modifier.size(19.dp),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "对比",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (showOriginalCompare) BrassGold else Color.White.copy(alpha = 0.6f),
+                                )
+                            }
+                        }
+
+                        // 预设浓度：随时可见的精修旋钮（只在选了预设时出现）
+                        recipe.preset?.let { preset ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    preset.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary,
+                                    modifier = Modifier.width(56.dp),
+                                    maxLines = 1,
+                                )
+                                Slider(
+                                    value = recipe.presetStrength,
+                                    onValueChange = { v -> pushRecipeUpdate(recipe.copy(presetStrength = v)) },
+                                    valueRange = 0f..1f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = BrassGold,
+                                        activeTrackColor = BrassGold,
+                                        inactiveTrackColor = Color(0x33FFFFFF),
+                                    ),
+                                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                                )
+                                Text(
+                                    "${(recipe.presetStrength * 100).roundToInt()}",
+                                    style = com.ophoto.ui.theme.ReadingStyle,
+                                    color = TextSecondary,
+                                    modifier = Modifier.width(30.dp),
+                                )
+                            }
+                            // 元数据：单行、次级灰，不再堆成第二条页脚
+                            Text(
+                                text = exifSummary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.38f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+
+                // 鉴赏模式提示（控制条隐去时给一个可点回的小把手）
+                if (!chromeVisible) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(44.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x59FFFFFF))
+                                .clickable { chromeVisible = true },
+                        )
+                    }
                 }
             }
         }
 
-        // Export progress bar (when exporting)
         if (isExporting) {
             LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp).statusBarsPadding(),
                 color = BrassGold,
-                trackColor = ObsidianBg
+                trackColor = Color.Transparent,
             )
         }
     }
 }
 
-// =========================================================================
-// Top Bar
-// =========================================================================
-
+/** 最近成片：横向胶片条，缩略图直接可点开继续修。 */
 @Composable
-private fun EditorTopBar(
-    imageCountText: String,
-    exifSummary: String,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    isCompare: Boolean,
-    isExporting: Boolean,
-    onPick: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onToggleCompare: () -> Unit,
-    onExport: () -> Unit,
+private fun RecentCapturesStrip(
+    records: List<com.ophoto.data.local.entity.CaptureRecordEntity>,
+    onPick: (com.ophoto.data.local.entity.CaptureRecordEntity) -> Unit,
 ) {
-    Surface(color = InstrumentDeck, tonalElevation = 0.dp, shadowElevation = 0.dp) {
-        Column(modifier = Modifier.fillMaxWidth().background(InstrumentDeck).padding(horizontal = 10.dp, vertical = 8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(BrassGold)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("暗房实验室", style = MaterialTheme.typography.labelMedium, color = ObsidianBg, fontWeight = FontWeight.Bold)
-                    }
-                    Column {
-                        Text("PRO DARKROOM 2.0", style = MaterialTheme.typography.labelSmall, color = BrassGold, fontSize = 10.sp, letterSpacing = 0.6.sp)
-                        Text(exifSummary, style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onPick, modifier = Modifier.size(36.dp).background(ControlPillBg, CircleShape)) {
-                        Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = "从相册选图", tint = BrassGold, modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(enabled = canUndo, onClick = onUndo, modifier = Modifier.size(36.dp).background(if (canUndo) ControlPillBg else ControlPillBg.copy(alpha = 0.5f), CircleShape)) {
-                        Icon(Icons.Rounded.Undo, contentDescription = "撤销", tint = if (canUndo) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(enabled = canRedo, onClick = onRedo, modifier = Modifier.size(36.dp).background(if (canRedo) ControlPillBg else ControlPillBg.copy(alpha = 0.5f), CircleShape)) {
-                        Icon(Icons.Rounded.Redo, contentDescription = "重做", tint = if (canRedo) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isCompare) BrassGold else ControlPillBg)
-                            .clickable(onClick = onToggleCompare)
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Rounded.Compare, contentDescription = null, tint = if (isCompare) ObsidianBg else TextPrimary, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(3.dp))
-                        Text("对比", style = MaterialTheme.typography.labelSmall, color = if (isCompare) ObsidianBg else TextPrimary)
-                    }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = ControlPillBg, shape = RoundedCornerShape(8.dp)) {
-                        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Rounded.ViewModule, contentDescription = null, tint = BrassGold, modifier = Modifier.size(12.dp))
-                            Text(imageCountText, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
-                        }
-                    }
-                    Text("点击画布长按可按住对比原片 · 双指缩放查看细节", style = MaterialTheme.typography.labelSmall, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                }
-                Button(
-                    onClick = onExport,
-                    enabled = !isExporting,
-                    colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = ObsidianBg, disabledContainerColor = HairlineBorder, disabledContentColor = TextMuted),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.height(34.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "最近",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.45f),
+        )
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(end = 18.dp),
+        ) {
+            items(records, key = { it.id }) { rec ->
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Color(0xFF1A1C21))
+                        .border(0.7.dp, Color(0x26FFFFFF), RoundedCornerShape(9.dp))
+                        .clickable { onPick(rec) },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (isExporting) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = ObsidianBg, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Text("导出中…", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(Icons.Rounded.SaveAlt, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("导出", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                    }
+                    AsyncPhotoThumb(
+                        uriString = rec.thumbnailPath ?: rec.filePath,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
         }
     }
 }
+
+/** 轻量缩略图：按 160px 采样解码，失败则显示占位。 */
+@Composable
+private fun AsyncPhotoThumb(uriString: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bmp by remember(uriString) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uriString) {
+        bmp = withContext(Dispatchers.IO) { decodeThumbnail(context, uriString) }
+    }
+    val image = bmp
+    if (image != null) {
+        Image(
+            bitmap = image.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier,
+        )
+    } else {
+        Box(
+            modifier = modifier.background(Color(0xFF23252B)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Image, null, tint = TextMuted, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+private fun decodeThumbnail(context: android.content.Context, uriString: String): Bitmap? = runCatching {
+    val uri = Uri.parse(uriString)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { ins ->
+        BitmapFactory.decodeStream(ins, null, bounds)
+    }
+    val sample = (minOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1) / 200).coerceAtLeast(1)
+    context.contentResolver.openInputStream(uri)?.use { ins ->
+        BitmapFactory.decodeStream(ins, null, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+}.getOrNull()
 
 // =========================================================================
 // FILTER panel with live filmstrip thumbnails

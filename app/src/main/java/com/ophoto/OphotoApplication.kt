@@ -59,6 +59,15 @@ class OphotoContainer(appContext: Context) {
     private val _editorMediaTarget = MutableSharedFlow<String>(extraBufferCapacity = 2)
     val editorMediaTarget: SharedFlow<String> = _editorMediaTarget
 
+    /**
+     * 最近一次「应当被暗房打开」的成片。SharedFlow 没有重放，
+     * 所以拍照后即使暗房页面还没被创建（或已被切走销毁），
+     * 暗房首次组合时也能凭这个值直接显示刚拍的这张照片。
+     */
+    @Volatile
+    var lastCapturedMediaUri: String? = null
+        private set
+
     init {
         appScope.launch {
             filterRepository.ensureBuiltInsSeeded()
@@ -74,6 +83,7 @@ class OphotoContainer(appContext: Context) {
     }
 
     fun openMediaInEditor(uriString: String) {
+        lastCapturedMediaUri = uriString
         _editorMediaTarget.tryEmit(uriString)
     }
 }

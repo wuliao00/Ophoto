@@ -3,11 +3,14 @@ package com.ophoto.ui.theme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,43 +21,92 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/* ========================================================================
-   Ophoto Design System — 基础视觉组件
-   全局复用，保持相机取景、滤镜库、暗房、助手、设置页的视觉一致性
-   ======================================================================== */
+/* ============================================================================
+   Ophoto Design System · 2026-11 「Clarity / Deference / Depth」
+   ----------------------------------------------------------------------------
+   · Clarity  —— 只有三级文字、单强调色、留白切分，不靠线框堆叠信息
+   · Deference —— 材质浮在内容之上，控件退后；工具条可自动隐去
+   · Depth   —— 统一的 press 缩放 / 抬起阴影 / 材质高光边，交互有物理回馈
+   ============================================================================ */
 
+/** 标准圆角：连续圆角感（外 16 / 内 12 / 胶囊 999）。 */
+object OphotoShape {
+    val Card = RoundedCornerShape(18.dp)
+    val Panel = RoundedCornerShape(22.dp)
+    val Inner = RoundedCornerShape(12.dp)
+    val Chip = RoundedCornerShape(999.dp)
+    val Sheet = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+}
+
+/**
+ * 按下反馈：极轻的 0.97 缩放 + 透明度，模拟 iOS 的响应式「贴手感」。
+ * 用于所有自定义 clickable 组件。
+ */
+@Composable
+fun Modifier.pressScale(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.97f,
+): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale = if (enabled && pressed) pressedScale else 1f
+    return this.scale(scale)
+}
+
+/** 轻材质：贴近内容的浮层（按钮组、小卡片）。 */
+@Composable
+fun OphotoMaterial(
+    modifier: Modifier = Modifier,
+    shape: Shape = OphotoShape.Card,
+    color: Color = MaterialThin,
+    borderColor: Color = MaterialHairline,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(color, shape)
+            .border(0.7.dp, borderColor, shape),
+        content = content,
+    )
+}
+
+/** 标准卡片：分组容器，用留白与材质而不是重边框来分组。 */
 @Composable
 fun OphotoCard(
     modifier: Modifier = Modifier,
-    borderDp: Dp = 1.dp,
+    borderDp: Dp = 0.7.dp,
     content: @Composable () -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(InstrumentDeck, shape)
-            .border(borderDp, HairlineBorder, shape),
+            .clip(OphotoShape.Card)
+            .background(MaterialThin, OphotoShape.Card)
+            .border(borderDp, MaterialHairline, OphotoShape.Card),
     ) {
-        content
+        content()
     }
 }
 
@@ -70,13 +122,97 @@ fun OphotoGlassCard(
             .fillMaxWidth()
             .clip(shape)
             .background(
-                Brush.verticalGradient(listOf(Color(0xFF141926), Color(0xFF0F121A))),
-                shape
+                Brush.verticalGradient(listOf(Color(0xFF17191F), Color(0xFF0E0F13))),
+                shape,
             )
-            .border(1.dp, Color.White.copy(alpha = 0.07f), shape)
-            .padding(14.dp),
-        content = content
+            .border(0.7.dp, MaterialHairline, shape)
+            .padding(16.dp),
+        content = content,
     )
+}
+
+/**
+ * 页面标题：以大标题 + 一行副文案承担全部信息层级。
+ * 取代此前的「eyebrow + 渐变卡 + 指标格」装饰性页头（Deference：让内容先说）。
+ */
+@Composable
+fun OphotoPageHeader(
+    title: String,
+    subtitle: String? = null,
+    trailing: @Composable (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 2.dp, top = 6.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            subtitle?.let {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        trailing?.invoke()
+    }
+}
+
+/** 兼容旧调用的页头（内部已简化为纯排版，不再有渐变/装饰）。 */
+@Composable
+fun PremiumHeroHeader(
+    eyebrow: String,
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    stats: List<Pair<String, String>> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp, bottom = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = BrassGold, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = eyebrow.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = BrassGoldDim,
+                letterSpacing = 1.2.sp,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+        if (stats.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                stats.forEach { (k, v) ->
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(v, style = MaterialTheme.typography.titleSmall, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.width(4.dp))
+                        Text(k, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -88,35 +224,28 @@ fun OphotoSectionHeader(
     trailing: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                icon?.let {
-                    Box(
-                        Modifier.size(28.dp).clip(RoundedCornerShape(8.dp))
-                            .background(accent.copy(alpha = 0.18f)).border(0.8.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) { Icon(it, null, tint = accent, modifier = Modifier.size(14.dp)) }
-                }
-                Column {
-                    Text(title, style = MaterialTheme.typography.titleMedium, color = accent, fontWeight = FontWeight.Bold)
-                    subtitle?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontSize = 10.sp)
-                    }
-                }
-            }
-            trailing?.invoke()
+    Row(
+        modifier = modifier.fillMaxWidth().padding(bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
         }
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(accent.copy(0.45f), Color.Transparent))))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+            subtitle?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+            }
+        }
+        trailing?.invoke()
     }
 }
 
-/* 药丸芯片（统一替代分散的 TopHudChip 调用） */
+/**
+ * 药丸芯片：控制态唯一形态。
+ * selected = 实心金底黑字；unselected = 半透明材质。
+ */
 @Composable
 fun OphotoChip(
     label: String,
@@ -124,31 +253,44 @@ fun OphotoChip(
     accent: Color = BrassGold,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
 ) {
-    val containerColor = if (selected) accent.copy(alpha = 0.20f) else ControlPillBg
-    val contentColor = if (selected) TextOnAccent else TextPrimary
-    val border = if (selected) 1.dp else 0.dp
-    val borderColor = if (selected) accent else Color.Transparent
-
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(containerColor, RoundedCornerShape(10.dp))
-            .border(border, borderColor, RoundedCornerShape(10.dp))
-            .clickable(enabled = onClick != null, onClick = onClick ?: {})
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .scale(if (pressed && onClick != null) 0.96f else 1f)
+            .clip(OphotoShape.Chip)
+            .background(if (selected) accent else ControlPillBg.copy(alpha = 0.72f), OphotoShape.Chip)
+            .border(
+                0.7.dp,
+                if (selected) Color.Transparent else MaterialHairline,
+                OphotoShape.Chip,
+            )
+            .clickable(
+                enabled = onClick != null,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick ?: {},
+            )
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        leadingIcon?.let {
+            Icon(it, null, tint = if (selected) TextOnAccent else TextSecondary, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(5.dp))
+        }
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = contentColor,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) TextOnAccent else TextSecondary,
+            maxLines = 1,
         )
     }
 }
 
-/* 主按钮：黄铜金填充，黑曜文字 */
+/** 主要按钮：全宽金底，仅用于页面唯一的主动作。 */
 @Composable
 fun OphotoPrimaryButton(
     onClick: () -> Unit,
@@ -156,19 +298,22 @@ fun OphotoPrimaryButton(
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    androidx.compose.material3.Button(
-        onClick = onClick,
-        enabled = enabled,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(46.dp)
-            .clip(RoundedCornerShape(12.dp)),
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = if (enabled) BrassGold else HairlineBorder,
-            contentColor = if (enabled) TextOnAccent else TextMuted,
-        ),
-        content = { content() },
-    )
+            .height(48.dp)
+            .scale(if (pressed) 0.98f else 1f)
+            .clip(OphotoShape.Inner)
+            .background(if (enabled) BrassGold else ControlPillBg)
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides if (enabled) TextOnAccent else TextMuted,
+        ) { content() }
+    }
 }
 
 @Composable
@@ -179,44 +324,55 @@ fun OphotoBrassButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    androidx.compose.material3.Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.height(42.dp).clip(RoundedCornerShape(11.dp)),
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = BrassGold, contentColor = ObsidianBg
-        ),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-        shape = RoundedCornerShape(11.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        modifier = modifier
+            .height(42.dp)
+            .scale(if (pressed) 0.97f else 1f)
+            .clip(OphotoShape.Inner)
+            .background(if (enabled) BrassGold else ControlPillBg)
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        icon?.let { Icon(it, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
-        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        icon?.let {
+            Icon(it, null, tint = TextOnAccent, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = TextOnAccent)
     }
 }
 
-/* 描边按钮 */
+/** 次要按钮：材质底 + 细边，不抢主动作。 */
 @Composable
 fun OphotoOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    accent: Color = BrassGold,
-    content: @Composable () -> Unit,
+    accent: Color = TextPrimary,
+    content: @Composable RowScope.() -> Unit,
 ) {
-    androidx.compose.material3.OutlinedButton(
-        onClick = onClick,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
         modifier = modifier
-            .fillMaxWidth()
             .height(42.dp)
-            .clip(RoundedCornerShape(12.dp)),
-        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-            contentColor = accent,
-        ),
-        shape = RoundedCornerShape(12.dp),
-        content = { content() },
-    )
+            .scale(if (pressed) 0.97f else 1f)
+            .clip(OphotoShape.Inner)
+            .background(ControlPillBg.copy(alpha = 0.5f))
+            .border(0.7.dp, MaterialHairline, OphotoShape.Inner)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides accent,
+        ) { content() }
+    }
 }
 
-/* 图标按钮（圆润控制盘） */
 @Composable
 fun OphotoIconButton(
     onClick: () -> Unit,
@@ -225,22 +381,21 @@ fun OphotoIconButton(
     size: Dp = 40.dp,
     modifier: Modifier = Modifier,
 ) {
-    androidx.compose.material3.IconButton(
-        onClick = onClick,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
         modifier = modifier
             .size(size)
-            .background(ControlPillBg, CircleShape),
+            .scale(if (pressed) 0.92f else 1f)
+            .clip(CircleShape)
+            .background(MaterialThin)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(20.dp),
-        )
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
-/* 分节标题 */
 @Composable
 fun OphotoSection(
     title: String,
@@ -248,211 +403,126 @@ fun OphotoSection(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = BrassGold,
-        )
-        subtitle?.let { sub ->
+        Text(title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+        subtitle?.let {
             Spacer(Modifier.height(2.dp))
-            Text(
-                text = sub,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-            )
+            Text(it, style = MaterialTheme.typography.bodySmall, color = TextMuted)
         }
     }
 }
 
-/* 空状态页 */
+/** 空状态：图标 + 一句话 + 唯一行动。 */
 @Composable
 fun EmptyState(
-    icon: ImageVector = Icons.Default.Info,
-    title: String = "暂无内容",
+    title: String,
     desc: String? = null,
     modifier: Modifier = Modifier,
     onAction: (() -> Unit)? = null,
     actionLabel: String? = null,
 ) {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Box(
-            modifier = Modifier
-                .size(88.dp)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Color(0xFF1E2430), Color(0xFF0D1017))), CircleShape)
-                .border(1.dp, HairlineBorder, CircleShape)
-                .padding(16.dp),
+            Modifier.size(56.dp).clip(CircleShape).background(ControlPillBg.copy(alpha = 0.6f)),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = BrassGold,
-                modifier = Modifier.size(32.dp),
-            )
+            Icon(Icons.Rounded.Info, null, tint = TextMuted, modifier = Modifier.size(22.dp))
         }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
-        )
+        Spacer(Modifier.height(14.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
         desc?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = TextMuted)
         }
         if (onAction != null && actionLabel != null) {
-            Spacer(Modifier.height(24.dp))
-            val action = onAction
-            val label = actionLabel
-            OphotoPrimaryButton(onClick = action) {
-                Text(label)
-            }
+            Spacer(Modifier.height(18.dp))
+            OphotoBrassButton(onClick = onAction, text = actionLabel)
         }
     }
 }
 
-/* 骨架屏行（加载占位） */
 @Composable
-fun SkeletonRow(
-    height: Dp = 16.dp,
-    modifier: Modifier = Modifier,
-) {
+fun SkeletonRow(height: Dp = 16.dp, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(4.dp))
-            .background(ControlPillBg),
+        modifier = modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(6.dp))
+            .background(ControlPillBg.copy(alpha = 0.55f)),
     )
 }
 
-/* 骨架屏块（方块占位，如预览缩略图） */
 @Composable
-fun SkeletonBlock(
-    size: Dp = 80.dp,
-    modifier: Modifier = Modifier,
-) {
+fun SkeletonBlock(size: Dp = 80.dp, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier
-            .size(size)
-            .clip(RoundedCornerShape(12.dp))
-            .background(ControlPillBg),
+        modifier = modifier.size(size).clip(RoundedCornerShape(12.dp))
+            .background(ControlPillBg.copy(alpha = 0.55f)),
     )
 }
 
-/* 毛玻璃浮层面板（HUD 覆盖层） */
 @Composable
-fun GlassSurface(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    val shape = RoundedCornerShape(12.dp)
+fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(
-        modifier = modifier
-            .clip(shape)
-            .background(GlassBlur, shape)
-            .border(0.8.dp, GlassBorder, shape),
-        content = { content() },
-    )
+        modifier = modifier.clip(OphotoShape.Inner).background(GlassBlur)
+            .border(0.7.dp, GlassBorder, OphotoShape.Inner),
+    ) { content() }
 }
 
-/* HUD 计量芯片：标题 + 数值（用于滤镜参数/曝光读数） */
 @Composable
-fun OphotoMetricCell(
-    title: String,
-    value: String,
-    valueColor: Color = TextPrimary,
-) {
+fun OphotoMetricCell(title: String, value: String, valueColor: Color = TextPrimary) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = title, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-        Text(text = value, style = MaterialTheme.typography.labelMedium, color = valueColor)
+        Text(title, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+        Spacer(Modifier.height(2.dp))
+        Text(value, style = ReadingStyle, color = valueColor)
     }
 }
 
-/* 横向分割线 */
 @Composable
-fun OphotoDivider(
-    modifier: Modifier = Modifier,
-    thickness: Dp = 0.8.dp,
-    color: Color = HairlineBorder,
-) {
-    Box(
-        modifier = modifier.fillMaxWidth().height(thickness).background(color),
-    )
+fun OphotoDivider(modifier: Modifier = Modifier, thickness: Dp = 0.7.dp, color: Color = MaterialHairline) {
+    Box(modifier.fillMaxWidth().height(thickness).background(color))
 }
 
-/* 信息标签（带图标的轻量提示） */
 @Composable
 fun OinfoChip(
     label: String,
-    icon: ImageVector = Icons.Default.Info,
-    tint: Color = CyanTelemetry,
+    icon: ImageVector = Icons.Rounded.Info,
+    tint: Color = TextMuted,
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(ControlPillBg, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth().clip(OphotoShape.Inner)
+            .background(ControlPillBg.copy(alpha = 0.4f)).padding(horizontal = 11.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
+        Icon(icon, null, tint = tint, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
 }
 
+/** 统计块（设置/体检页）：数字在上，说明在下，弱化装饰。 */
 @Composable
-fun PremiumHeroHeader(
-    eyebrow: String,
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    stats: List<Pair<String, String>> = emptyList(),
-    modifier: Modifier = Modifier,
-) {
+fun OphotoStatCell(label: String, value: String, accent: Color = TextPrimary, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = accent, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(2.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+    }
+}
+
+/** 全屏空白的加载遮罩（Deference：只在必要时出现）。 */
+@Composable
+fun OphotoLoadingVeil(text: String, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF1B2232), Color(0xFF0F121A))), RoundedCornerShape(18.dp))
-            .border(1.dp, Color.White.copy(0.07f), RoundedCornerShape(18.dp))
-            .padding(16.dp)
+        modifier = modifier.fillMaxSize().background(Color(0xB308090B)),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.size(26.dp).clip(CircleShape).background(BrassGold.copy(0.18f)), contentAlignment = Alignment.Center) {
-                        Icon(icon, null, tint = BrassGold, modifier = Modifier.size(14.dp))
-                    }
-                    Text(eyebrow, style = MaterialTheme.typography.labelSmall, color = BrassGold, letterSpacing = 1.2.sp)
-                }
-                Text(title, style = MaterialTheme.typography.titleLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                if (stats.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-                        stats.forEach { (k, v) ->
-                            Column {
-                                Text(k, style = MaterialTheme.typography.labelSmall, color = TextMuted, fontSize = 9.sp)
-                                Text(v, style = MaterialTheme.typography.labelMedium, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
-            }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = BrassGold, strokeWidth = 2.dp, modifier = Modifier.size(26.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(text, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
         }
     }
 }
