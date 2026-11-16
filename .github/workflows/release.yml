@@ -66,7 +66,9 @@ jobs:
           pattern = re.compile(r"^## \[v" + re.escape(version) + r"\].*?(?=^## \[)", re.S | re.M)
           match = pattern.search(changes)
           section = match.group(0).strip() if match else ""
-          section = re.sub(r"[\r\n]+", "\n", section)
+          # 去掉 CHANGELOG 自带的 "## [vX]" 标题（release 正文已自带标题），并统一左对齐。
+          section = re.sub(r"^## \[v[^\]]+\].*?\n", "", section, count=1, flags=re.M)
+          section = "\n".join(line.strip() for line in section.splitlines()).strip()
           print("RELEASE_NOTES<<__OPHOTO_NOTES_EOF__")
           print(section)
           print("__OPHOTO_NOTES_EOF__")
