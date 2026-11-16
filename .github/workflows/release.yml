@@ -194,7 +194,7 @@ jobs:
           ]
           if preview:
               lines += [
-                  f"![Ophoto {tag} 界面预览](https://raw.githubusercontent.com/{repo}/{tag}/release-preview/three-up.jpg)",
+                  f"![Ophoto {tag} 界面预览](https://raw.githubusercontent.com/{repo}/main/release-preview/three-up.jpg)",
                   "",
               ]
           lines += [
