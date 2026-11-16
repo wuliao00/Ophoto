@@ -172,7 +172,7 @@ jobs:
           export REL_SIZE DBG_SIZE REL_SHA DBG_SHA
 
           python3 -c '
-          import os, textwrap
+          import os
           tag = os.environ["RELEASE_TAG"]
           version = os.environ["RELEASE_VERSION"]
           codename = os.environ.get("RELEASE_CODENAME", "Release")
@@ -186,28 +186,29 @@ jobs:
           changelog = os.environ.get("RELEASE_NOTES", "").strip()
           if not changelog:
               changelog = "### 更新内容\n- 详细内容见仓库 CHANGELOG.md。"
-          notes = textwrap.dedent(f"""\
-              ## Ophoto {tag} · {codename}
-
-              {changelog}
-
-              ### 下载
-              - [正式 APK ({rel_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-release.apk) · SHA-256 `{rel_sha}`
-              - [调试 APK ({dbg_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-debug.apk) · SHA-256 `{dbg_sha}`
-              - 校验清单：[SHA256SUMS.txt](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS.txt)
-
-              ### 安装提示
-              - 需要 Android 8.0+（API 26）；OPPO / 一加 / realme 深色主题与折叠屏均可直接安装。
-              - 首次进入相机页请允许「相机」权限；未授权时会显示授权引导而不是黑屏。
-              - 取景亮度可在相机页「亮度」面板一键切换（自然 / 均衡 / 明亮 / 棚拍 / 手机式观感），
-                只影响取景观感，成片仍按你的曝光设置。
-
-              **签名提示：{signing_note}**
-
-              APK 证书 SHA-256：`{cert_sha}`
-          """)
+          # 逐行拼接，避免 heredoc 缩进被 Markdown 当成代码块
+          lines = [
+              f"## Ophoto {tag} · {codename}",
+              "",
+              changelog,
+              "",
+              "### 下载",
+              f"- [正式 APK ({rel_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-release.apk) · SHA-256 `{rel_sha}`",
+              f"- [调试 APK ({dbg_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-debug.apk) · SHA-256 `{dbg_sha}`",
+              f"- 校验清单：[SHA256SUMS.txt](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS.txt)",
+              "",
+              "### 安装提示",
+              "- 需要 Android 8.0+（API 26）；OPPO / 一加 / realme 深色主题与折叠屏均可直接安装。",
+              "- 首次进入相机页请允许「相机」权限；未授权时会显示授权引导而不是黑屏。",
+              "- 全屏取景下轻触画面可唤回控件，长按画面进入纯构图模式；暗房轻点画面隐藏控件，双击对比原片。",
+              "",
+              f"**签名提示：{signing_note}**",
+              "",
+              f"APK 证书 SHA-256：`{cert_sha}`",
+              "",
+          ]
           with open("release-notes.md", "w", encoding="utf-8") as f:
-              f.write(notes)
+              f.write("\n".join(lines))
           '
 
           PUBLISH_LOG="publish.log"
