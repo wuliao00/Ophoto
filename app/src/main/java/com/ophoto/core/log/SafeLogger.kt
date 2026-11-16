@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentLinkedDeque
  */
 object SafeLogger {
 
-    private const val MAX_ENTRIES = 120
+    private const val MAX_ENTRIES = 400
     private val ringBuffer = ConcurrentLinkedDeque<String>()
 
     fun info(tag: String, message: String) {

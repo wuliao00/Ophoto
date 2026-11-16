@@ -56,6 +56,21 @@ jobs:
           echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE_CODENAME=${CODENAME}" >> "$GITHUB_ENV"
+          # Release notes 直接从仓库内的 CHANGELOG 摘取当前版本段落，避免描述与实现漂移。
+          python3 -c '
+          import json, re
+          with open("RELEASE_MANIFEST.json", encoding="utf-8") as f:
+              version = json.load(f)["version"]
+          with open("CHANGELOG.md", encoding="utf-8") as f:
+              changes = f.read()
+          pattern = re.compile(r"^## \[v" + re.escape(version) + r"\].*?(?=^## \[)", re.S | re.M)
+          match = pattern.search(changes)
+          section = match.group(0).strip() if match else ""
+          section = re.sub(r"[\r\n]+", "\n", section)
+          print("RELEASE_NOTES<<__OPHOTO_NOTES_EOF__")
+          print(section)
+          print("__OPHOTO_NOTES_EOF__")
+          ' >> "$GITHUB_ENV"
 
           KEYSTORE_PATH="$RUNNER_TEMP/ophoto-release.jks"
           if [ -n "$REL_KEYSTORE_B64" ]; then
@@ -125,6 +140,12 @@ jobs:
           CERT_SHA256=$(echo "$CERT_INFO" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1 || true)
           echo "CERT_SHA256=${CERT_SHA256:-Verified}" >> "$GITHUB_ENV"
 
+          # Guard: manifest tag/version must match what was actually built into the APK.
+          AAPT=$(ls -1 "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          APK_VERSION=$("$AAPT" dump badging "$RELEASE_OUT" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          echo "APK versionName: $APK_VERSION (expected $RELEASE_VERSION)"
+          test "$APK_VERSION" = "$RELEASE_VERSION"
+
           (
             cd dist
             sha256sum "Ophoto-${RELEASE_TAG}-release.apk" "Ophoto-${RELEASE_TAG}-debug.apk" > SHA256SUMS.txt
@@ -151,6 +172,8 @@ jobs:
           python3 -c '
           import os, textwrap
           tag = os.environ["RELEASE_TAG"]
+          version = os.environ["RELEASE_VERSION"]
+          codename = os.environ.get("RELEASE_CODENAME", "Release")
           repo = os.environ["GITHUB_REPOSITORY"]
           rel_size = os.environ["REL_SIZE"]
           dbg_size = os.environ["DBG_SIZE"]
@@ -158,18 +181,24 @@ jobs:
           dbg_sha = os.environ["DBG_SHA"]
           cert_sha = os.environ.get("CERT_SHA256", "Verified")
           signing_note = os.environ["SIGNING_NOTE"]
+          changelog = os.environ.get("RELEASE_NOTES", "").strip()
+          if not changelog:
+              changelog = "### 更新内容\n- 详细内容见仓库 CHANGELOG.md。"
           notes = textwrap.dedent(f"""\
-              ## Ophoto {tag}
+              ## Ophoto {tag} · {codename}
 
-              - 修复取景画面可能被界面遮挡，改用 CameraX 兼容预览；启动失败时可重试。
-              - 默认自动曝光 +0.7 EV，可通过顶部「曝光」调整，实际补偿取决于设备支持范围。
-              - 取景显示原片，所选滤镜在照片保存时应用；峰值对焦、斑马纹及实时滤镜预览暂不可用。
-              - 拍摄或保存失败会显示错误，不再保存模拟画面。
-              - 未在所有设备实机验证，预览亮度仍受设备、光线和曝光能力限制。
+              {changelog}
 
               ### 下载
               - [正式 APK ({rel_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-release.apk) · SHA-256 `{rel_sha}`
               - [调试 APK ({dbg_size})](https://github.com/{repo}/releases/download/{tag}/Ophoto-{tag}-debug.apk) · SHA-256 `{dbg_sha}`
+              - 校验清单：[SHA256SUMS.txt](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS.txt)
+
+              ### 安装提示
+              - 需要 Android 8.0+（API 26）；OPPO / 一加 / realme 深色主题与折叠屏均可直接安装。
+              - 首次进入相机页请允许「相机」权限；未授权时会显示授权引导而不是黑屏。
+              - 取景亮度可在相机页「亮度」面板一键切换（自然 / 均衡 / 明亮 / 棚拍 / 手机式观感），
+                只影响取景观感，成片仍按你的曝光设置。
 
               **签名提示：{signing_note}**
 
@@ -183,7 +212,16 @@ jobs:
           (
             set -euo pipefail
             if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-              echo "Release $RELEASE_TAG already exists; preserving its tag and signed assets."
+              echo "Release $RELEASE_TAG exists; refreshing notes and signed assets."
+              gh release edit "$RELEASE_TAG" \
+                --title "Ophoto ${RELEASE_TAG} · ${RELEASE_CODENAME} (Signed APK)" \
+                --notes-file release-notes.md
+              gh release upload "$RELEASE_TAG" \
+                "dist/Ophoto-${RELEASE_TAG}-release.apk" \
+                "dist/Ophoto-${RELEASE_TAG}-debug.apk" \
+                "dist/SHA256SUMS.txt" \
+                --clobber
+              gh release edit "$RELEASE_TAG" --latest
             else
               gh release create "$RELEASE_TAG" \
                 "dist/Ophoto-${RELEASE_TAG}-release.apk" \

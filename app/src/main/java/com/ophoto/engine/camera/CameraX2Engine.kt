@@ -13,11 +13,13 @@ import android.hardware.camera2.params.RggbChannelVector
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Size
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
@@ -27,6 +29,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
@@ -73,6 +76,21 @@ class CameraX2Engine(
     private var currentWb = WhiteBalanceConfig()
     private var currentFilter = FilterConfig(null, 1f)
 
+    /** 最近一次绑定结果（会话能力 + 降级原因），供设置页与 HUD 诊断展示。 */
+    var lastBinding: CameraBindingResult? = null
+        private set
+
+    /** 最近一次失败的绑定原因（用于抛给 UI 人类可读文本）。 */
+    private var lastBindError: String? = null
+
+    /** 真实预览分辨率。 */
+    var previewFormat: PreviewFormatInfo = PreviewFormatInfo()
+        private set
+
+    /** 最近一次成功下发的 EV（索引, 步长），用于在 HUD 中还原「实际生效」的补偿值。 */
+    var lastEvApplied: Pair<Int, Float>? = null
+        private set
+
     override suspend fun bindSession(
         lifecycleOwner: LifecycleOwner,
         surfaceProvider: Preview.SurfaceProvider,
@@ -87,49 +105,143 @@ class CameraX2Engine(
         }
 
         val selector = buildSelectorForCameraId(cameraId)
-        val preview = Preview.Builder().build().also {
-            it.surfaceProvider = surfaceProvider
-        }
-        val imageCapture = ImageCapture.Builder()
+
+        // 预览用例：优先 4:3 的取景比率，与拍照输出一致，避免观感剪刀差。
+        fun buildPreview(): Preview = Preview.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .build()
+            .also { it.surfaceProvider = surfaceProvider }
+
+        // 注意：CameraX 不允许同时设置 target aspect ratio 与 target resolution。
+        fun buildImageCapture(highRes: Boolean): ImageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .apply {
+                if (highRes) {
+                    setTargetResolution(Size(4000, 3000))
+                } else {
+                    setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                }
+            }
             .build()
 
         val qualitySelector = QualitySelector.fromOrderedList(
-            listOf(Quality.UHD, Quality.FHD, Quality.HD),
+            listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD),
+            FallbackStrategy.lowerQualityOrHigherThan(Quality.SD),
         )
-        val recorder = Recorder.Builder()
-            .setQualitySelector(qualitySelector)
-            .build()
-        val videoCapture = VideoCapture.withOutput(recorder)
+        val videoCapture = VideoCapture.withOutput(
+            Recorder.Builder().setQualitySelector(qualitySelector).build(),
+        )
 
-        provider.unbindAll()
-        activeCamera = null
-        imageCaptureUseCase = null
-        videoCaptureUseCase = null
-        // Some devices cannot support preview + still + video simultaneously. Keep
-        // photography usable on those devices instead of silently showing a black preview.
-        var videoAvailable = true
-        val camera = try {
-            provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture, videoCapture)
-        } catch (first: Exception) {
-            SafeLogger.warn("CameraX2Engine", "Video combination unsupported; retrying photo session")
-            provider.unbindAll()
-            videoAvailable = false
-            try {
+        // 逐级降级绑定：预览必须是第一优先级，宁可放弃录像/高分辨率也不能黑屏。
+        var preview = buildPreview()
+        var imageCapture = buildImageCapture(highRes = true)
+        var bound: Camera? = null
+        var videoAvailable = false
+        var highResPhoto = true
+        var degradedReason: String? = null
+
+        val attempts: List<Pair<String, suspend () -> Camera>> = listOf(
+            "UHD_PHOTO_AND_VIDEO" to {
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture, videoCapture)
+            },
+            "PHOTO_AND_VIDEO" to {
+                provider.unbindAll()
+                preview = buildPreview()
+                imageCapture = buildImageCapture(highRes = false)
+                highResPhoto = false
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture, videoCapture)
+            },
+            "PHOTO_ONLY" to {
+                provider.unbindAll()
+                preview = buildPreview()
+                imageCapture = buildImageCapture(highRes = false)
+                highResPhoto = false
                 provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
-            } catch (second: Exception) {
-                SafeLogger.error("CameraX2Engine", "Failed to bind camera session", second)
-                throw second
+            },
+            "PREVIEW_ONLY" to {
+                provider.unbindAll()
+                preview = buildPreview()
+                imageCapture = buildImageCapture(highRes = false)
+                highResPhoto = false
+                provider.bindToLifecycle(lifecycleOwner, selector, preview)
+            },
+        )
+
+        for ((label, attempt) in attempts) {
+            try {
+                bound = attempt()
+                videoAvailable = label != "PHOTO_ONLY" && label != "PREVIEW_ONLY"
+                if (label != "UHD_PHOTO_AND_VIDEO" && degradedReason == null) {
+                    degradedReason = "已降级为 $label 模式"
+                }
+                SafeLogger.info("CameraX2Engine", "bind ok: $label lens=$cameraId")
+                break
+            } catch (e: Exception) {
+                lastBindError = describeCameraBindingFailure(e)
+                if (degradedReason == null) {
+                    degradedReason = lastBindError
+                }
+                SafeLogger.warn("CameraX2Engine", "bind attempt $label failed: ${e.javaClass.simpleName}")
             }
         }
+
+        val camera = bound
+        if (camera == null) {
+            SafeLogger.error("CameraX2Engine", "all bind attempts failed for lens $cameraId")
+            throw IllegalStateException(lastBindError ?: "无法启动相机预览")
+        }
+
         activeCamera = camera
         previewUseCase = preview
         imageCaptureUseCase = imageCapture
         videoCaptureUseCase = if (videoAvailable) videoCapture else null
-        // Apply the requested compensation after binding; setting it before a camera
-        // exists only stores the value. Do not apply it again in a preview shader.
+        lastBinding = CameraBindingResult(
+            sessionLabel = if (videoAvailable) "照片 + 录像" else "仅照片",
+            photoAvailable = true,
+            videoAvailable = videoAvailable,
+            highResolutionPhoto = highResPhoto,
+            degradedReason = degradedReason,
+        )
+
+        // 预览格式信息：让 HUD 显示真实的取景分辨率，而不是猜。
+        runCatching {
+            val resolution = preview.resolutionInfo?.resolution
+            previewFormat = PreviewFormatInfo(
+                width = resolution?.width ?: 0,
+                height = resolution?.height ?: 0,
+                sessionLabel = lastBinding?.sessionLabel.orEmpty(),
+                highResolutionPhoto = highResPhoto,
+            )
+        }
+
+        // 绑定时让 AE 处于正常状态：清掉上一次可能遗留的 AE 锁定/手动曝光。
+        runCatching { camera.cameraControl.enableTorch(false) }
+        applyPreviewExposureGuard(camera)
         setExposure(currentExposure)
         Unit
+    }
+
+    /**
+     * 预览亮度护栏：ColorOS 家族在预览流上更容易被自定义 Camera2 参数带偏
+     * （典型是进入专业模式后 AE 被锁、或残留 AWB/AE 手动值导致整屏石灰黑）。
+     * 这里显式把预览会话的 AE/AWB 恢复为自动，只有在用户主动锁定或手动模式时才例外。
+     */
+    private fun applyPreviewExposureGuard(camera: Camera) {
+        val control = runCatching { Camera2CameraControl.from(camera.cameraControl) }.getOrNull() ?: return
+        val builder = CaptureRequestOptions.Builder()
+        if (currentExposure.manualMode) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+        } else {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, currentExposure.aeLocked)
+        }
+        if (currentWb.mode == WhiteBalanceMode.MANUAL) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF)
+        } else if (!currentWb.awbLocked) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, false)
+        }
+        runCatching { control.setCaptureRequestOptions(builder.build()) }
     }
 
     override suspend fun openCamera(cameraId: String) {
@@ -187,8 +299,11 @@ class CameraX2Engine(
             }
         }
 
-        if (config.bracketStops) {
-            setExposure(config.exposure)
+        // 拍照结束后恢复取景曝光：预览提亮 EV 与成片 EV 解耦，保证成片按用户设定曝光。
+        setExposure(config.previewExposure ?: config.exposure)
+        imageCaptureUseCase?.flashMode = ImageCapture.FLASH_MODE_OFF
+        if (config.flashMode != FlashSetting.TORCH) {
+            activeCamera?.cameraControl?.enableTorch(false)
         }
 
         return if (primaryBitmap != null) {
@@ -299,6 +414,7 @@ class CameraX2Engine(
                 state.exposureCompensationRange.lower, state.exposureCompensationRange.upper,
             )
             cam.cameraControl.setExposureCompensationIndex(index)
+            lastEvApplied = index to state.exposureCompensationStep.toFloat()
         }
         applyCamera2CaptureOptions()
     }
@@ -328,11 +444,46 @@ class CameraX2Engine(
     override fun setZoomRatio(zoom: Float) {
         val cam = activeCamera ?: return
         val zoomState = cam.cameraInfo.zoomState.value
-        val clamped = zoom.coerceIn(
-            zoomState?.minZoomRatio ?: 1f,
-            zoomState?.maxZoomRatio ?: 8f,
-        )
+        val clamped = clampZoomRatio(zoom, zoomState?.minZoomRatio, zoomState?.maxZoomRatio)
         cam.cameraControl.setZoomRatio(clamped)
+    }
+
+    /** 当前生效的实际 EV（考虑设备步长与限幅），用于 HUD 显示真实补偿值。 */
+    override fun effectiveEv(): Float? {
+        val cam = activeCamera ?: return null
+        val state = cam.cameraInfo.exposureState
+        if (!state.isExposureCompensationSupported) return null
+        val step = state.exposureCompensationStep.toFloat()
+        val current = lastEvApplied?.first
+            ?: currentExposure.evCompensation.let { ev ->
+                exposureCompensationIndex(ev, step, state.exposureCompensationRange.lower, state.exposureCompensationRange.upper)
+            }
+        val clamped = current.coerceIn(state.exposureCompensationRange.lower, state.exposureCompensationRange.upper)
+        return clamped * step
+    }
+
+    override fun resetExposureBaseline() {
+        currentExposure = ExposureConfig()
+        val cam = activeCamera ?: return
+        runCatching { cam.cameraControl.setExposureCompensationIndex(0) }
+        applyPreviewExposureGuard(cam)
+        setExposure(currentExposure)
+    }
+
+    /** 取景亮度遥测：单帧 32×32 YUV 统计，不改动当前预览会话。 */
+    override suspend fun probeViewfinderBrightness(): MeteringSample? = withContext(Dispatchers.IO) {
+        if (!ViewfinderMeterProbe.canProbe(context)) return@withContext null
+        // 探针需要独占相机，因此先释放 CameraX 会话、采样后再重新绑定预览。
+        val owner = lastLifecycleOwner
+        val surface = lastSurfaceProvider
+        withContext(Dispatchers.Main) { runCatching { cameraProvider?.unbindAll() } }
+        val sample = ViewfinderMeterProbe.probe(context, activeCameraId)
+        if (owner != null && surface != null) {
+            withContext(Dispatchers.Main) {
+                runCatching { bindSession(owner, surface, activeCameraId) }
+            }
+        }
+        sample
     }
 
     override fun setFilter(filter: FilterConfig) {
@@ -357,6 +508,9 @@ class CameraX2Engine(
         )
     }
 
+    /** 当前绑定会话能力（供设置页体检卡显示）。 */
+    fun currentBinding(): CameraBindingResult? = lastBinding
+
     private fun buildSelectorForCameraId(cameraId: String): CameraSelector {
         return CameraSelector.Builder()
             .addCameraFilter { cameraInfos ->
@@ -376,6 +530,9 @@ class CameraX2Engine(
         val optionsBuilder = CaptureRequestOptions.Builder()
 
         // 1. Exposure (AE vs Manual ISO + Shutter ns)
+        // 注意：Camera2Interop 下发的 CONTROL_AE_MODE=OFF 会在会话存续期间一直生效。
+        // 从专业手动切回自动时必须显式写回 AE_MODE_ON，否则取景会停在旧的 ISO/快门上
+        // ——这正是「退出专业模式后取景框还是黑」的典型根因。
         if (currentExposure.manualMode) {
             val iso = currentExposure.iso.coerceIn(caps.isoRange.first, caps.isoRange.last)
             val ns = (currentExposure.shutterSeconds * 1_000_000_000.0).toLong()
@@ -383,8 +540,9 @@ class CameraX2Engine(
             optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
             optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
             optionsBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, ns)
-        } else if (currentExposure.aeLocked) {
-            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
+        } else {
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+            optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, currentExposure.aeLocked)
         }
 
         // 2. Focus (AF Continuous Picture vs Manual Focus Diopter)
@@ -394,12 +552,21 @@ class CameraX2Engine(
                 CaptureRequest.LENS_FOCUS_DISTANCE,
                 currentFocus.focusDistanceDiopters.coerceIn(0f, caps.maxFocusDiopters),
             )
+        } else {
+            optionsBuilder.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AF_MODE,
+                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+            )
         }
 
         // 3. White Balance (Auto, Scene Presets, or Manual Kelvin RGGB vector)
         when (currentWb.mode) {
             WhiteBalanceMode.AUTO -> {
-                if (currentWb.awbLocked) optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+                optionsBuilder.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AWB_MODE,
+                    CameraMetadata.CONTROL_AWB_MODE_AUTO,
+                )
+                optionsBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, currentWb.awbLocked)
             }
             WhiteBalanceMode.DAYLIGHT -> optionsBuilder.setCaptureRequestOption(
                 CaptureRequest.CONTROL_AWB_MODE,
@@ -442,25 +609,31 @@ class CameraX2Engine(
          * Planckian locus approximation mapping color temperature (2500K..10000K) to Camera2 RGGB gains.
          */
         fun kelvinToRggbVector(kelvin: Int): RggbChannelVector {
+            // Tanner Helland 黑体轨迹近似：RGB → 反向增益，输出归一化 RGGB。
             val temp = (kelvin.coerceIn(2500, 10000)) / 100.0
-            val red = if (temp <= 66.0) 1.0 else (1.292936 * Math.pow(temp - 60.0, -0.13320476)).coerceIn(0.4, 2.5)
-            val green = if (temp <= 66.0) {
-                (0.39008158 * ln(temp) - 0.63184144).coerceIn(0.4, 2.5)
+            val red = if (temp <= 66.0) {
+                255.0
             } else {
-                (1.1298909 * Math.pow(temp - 60.0, -0.07551485)).coerceIn(0.4, 2.5)
+                (329.698727446 * Math.pow(temp - 60.0, -0.1332047592)).coerceIn(0.0, 255.0)
+            }
+            val green = if (temp <= 66.0) {
+                (99.4708025861 * ln(temp) - 161.1195681661).coerceIn(0.0, 255.0)
+            } else {
+                (288.1221695283 * Math.pow(temp - 60.0, -0.0755148492)).coerceIn(0.0, 255.0)
             }
             val blue = when {
-                temp >= 66.0 -> 1.0
-                temp <= 19.0 -> 0.4
-                else -> (0.54320679 * ln(temp - 10.0) - 1.1962541).coerceIn(0.4, 2.5)
+                temp >= 66.0 -> 255.0
+                temp <= 19.0 -> 0.0
+                else -> (138.5177312231 * ln(temp - 10.0) - 305.0447927307).coerceIn(0.0, 255.0)
             }
-            val normG = green.coerceAtLeast(0.01)
-            return RggbChannelVector(
-                (1.0 / (red / normG)).toFloat().coerceIn(0.5f, 3.2f),
-                1.0f,
-                1.0f,
-                (1.0 / (blue / normG)).toFloat().coerceIn(0.5f, 3.2f),
-            )
+            // 反向增益：色温越低画面越暖，需要更强的蓝通道增益来中和。
+            fun inverse(channel: Double): Float =
+                (255.0 / channel.coerceAtLeast(1.0)).toFloat().coerceIn(0.25f, 4.0f)
+            val r = inverse(red)
+            val g = 1.0f
+            val b = inverse(blue)
+            // 保证整体不改变画面平均亮度：绿通道不动，红/蓝围绕 1.0 平衡。
+            return RggbChannelVector(r, g, g, b)
         }
     }
 }
