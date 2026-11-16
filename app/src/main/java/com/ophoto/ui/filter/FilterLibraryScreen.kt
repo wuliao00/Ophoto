@@ -103,6 +103,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.rounded.Search
+import com.ophoto.data.repository.DemoPhoto
+import com.ophoto.data.repository.DemoPhotos
+import com.ophoto.ui.theme.BrassGoldSoft
+import com.ophoto.ui.theme.MaterialHairline
+import com.ophoto.ui.theme.MaterialThin
+import com.ophoto.ui.theme.OphotoChip
+import com.ophoto.ui.theme.OphotoPageHeader
+import com.ophoto.ui.theme.OphotoShape
+import com.ophoto.ui.theme.TextOnAccent
 
 @Composable
 fun MasterPresetCard(
@@ -115,79 +129,143 @@ fun MasterPresetCard(
     onExportCube: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val previewGraded = remember(preset.id, preset.params) {
-        val engine = com.ophoto.engine.filter.FilterEngineImpl()
-        engine.loadFilter(preset)
-        engine.setStrength(preset.defaultStrength)
-        engine.applyToImage(sampleBitmap)
+    // 每张卡片的缩略图由「真实摄影底片 + 该预设」现算，杜绝同一张测试图重复出现
+    val previewGraded = remember(preset.id, preset.params, sampleBitmap) {
+        runCatching {
+            val engine = com.ophoto.engine.filter.FilterEngineImpl()
+            engine.loadFilter(preset)
+            engine.setStrength(preset.defaultStrength)
+            engine.applyToImage(sampleBitmap)
+        }.getOrDefault(sampleBitmap)
     }
-    val m = preset.masterReference
-    val accent = remember(preset.accentHex) { runCatching { Color(android.graphics.Color.parseColor(preset.accentHex)) }.getOrDefault(BrassGold) }
+    val accent = remember(preset.accentHex) {
+        runCatching { Color(android.graphics.Color.parseColor(preset.accentHex)) }.getOrDefault(BrassGold)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF171C2A), Color(0xFF11131A))), RoundedCornerShape(18.dp))
-            .border(1.dp, Color.White.copy(0.07f), RoundedCornerShape(18.dp)),
+            .clip(OphotoShape.Card)
+            .background(MaterialThin)
+            .border(0.7.dp, MaterialHairline, OphotoShape.Card),
     ) {
-        // Cinematic hero image with overlay
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(132.dp)
-                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                .aspectRatio(4f / 3f)
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)),
         ) {
             Image(
                 bitmap = previewGraded.asImageBitmap(),
                 contentDescription = preset.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA0B0D12)), startY = 300f)))
-            Row(Modifier.align(Alignment.TopStart).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xCC0B0D12)).border(0.8.dp, accent.copy(0.4f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text(preset.category.label, style = MaterialTheme.typography.labelSmall, color = accent, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                }
-                if (preset.isFavorite) Box(Modifier.clip(RoundedCornerShape(8.dp)).background(ShutterOrange.copy(0.22f)).padding(horizontal = 6.dp, vertical = 4.dp)) { Text("★ 收藏", style = MaterialTheme.typography.labelSmall, color = ShutterOrange, fontSize = 10.sp) }
-            }
-            Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(preset.name, style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
-                Text(preset.subtitle, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(0.85f))
-            }
-            Row(Modifier.align(Alignment.BottomEnd).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IconButton(onClick = { scope.launch { container.filterRepository.toggleFavorite(preset) } }, modifier = Modifier.size(30.dp).background(Color(0xCC0B0D12), RoundedCornerShape(8.dp))) {
-                    Icon(if (preset.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null, tint = if (preset.isFavorite) ShutterOrange else Color.White, modifier = Modifier.size(16.dp))
-                }
-                IconButton(onClick = onShareQr, modifier = Modifier.size(30.dp).background(Color(0xCC0B0D12), RoundedCornerShape(8.dp))) {
-                    Icon(Icons.Rounded.QrCode2, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-                if (!preset.isBuiltIn) IconButton(onClick = { scope.launch { container.filterRepository.deletePreset(preset) } }, modifier = Modifier.size(30.dp).background(Color(0xCC0B0D12), RoundedCornerShape(8.dp))) {
-                    Icon(Icons.Rounded.DeleteOutline, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(preset.description, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF12151E)).border(0.8.dp, HairlineBorder, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+            // 底部信息压暗渐变（文字永远可读）
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0x99000000), Color(0xE6000000)),
+                            startY = 260f,
+                        ),
+                    ),
+            )
+            Column(
+                Modifier.align(Alignment.BottomStart).padding(10.dp),
             ) {
-                MasterMetricCell("底色", m.baseFilterLabel)
-                MasterMetricCell("影调", formatSigned(m.tone))
-                MasterMetricCell("饱和", formatSigned(m.saturation))
-                MasterMetricCell("冷暖", formatSigned(m.warmth))
-                MasterMetricCell("锐度", formatSigned(m.sharpness))
+                Text(
+                    preset.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    preset.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Text("建议 ${m.recommendedIso} · ${m.recommendedShutter} · ${m.recommendedEv} · ${m.recommendedKelvin}K", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onApplyCamera, colors = ButtonDefaults.buttonColors(containerColor = BrassGold, contentColor = Color(0xFF0B0D12)), shape = RoundedCornerShape(11.dp), modifier = Modifier.weight(1f).height(40.dp)) {
-                    Text("应用至相机", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            // 收藏：右上角单动作，不堆一排小按钮
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x73000000))
+                    .clickable { scope.launch { container.filterRepository.toggleFavorite(preset) } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (preset.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = "收藏",
+                    tint = if (preset.isFavorite) ShutterOrange else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+            // 分类色点：一个 3dp 圆点取代标签块
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(accent),
+            )
+        }
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                preset.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                minLines = 2,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clip(OphotoShape.Chip)
+                        .background(BrassGold)
+                        .clickable(onClick = onApplyCamera),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "用于拍摄",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextOnAccent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
-                OutlinedButton(onClick = onLaunchOverlay, shape = RoundedCornerShape(11.dp), modifier = Modifier.weight(1f).height(40.dp)) {
-                    Icon(Icons.Rounded.PictureInPictureAlt, null, tint = BrassGold, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(4.dp)); Text("悬浮窗", color = BrassGold, style = MaterialTheme.typography.labelMedium)
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(ControlPillBg.copy(alpha = 0.7f))
+                        .clickable(onClick = onLaunchOverlay),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.PictureInPictureAlt, "悬浮参考", tint = BrassGold, modifier = Modifier.size(16.dp))
                 }
-                OutlinedButton(onClick = onExportCube, shape = RoundedCornerShape(11.dp), modifier = Modifier.height(40.dp)) { Text(".cube", color = TextPrimary, style = MaterialTheme.typography.labelMedium) }
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(ControlPillBg.copy(alpha = 0.7f))
+                        .clickable(onClick = onShareQr),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.QrCode2, "分享配方", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                }
             }
         }
     }
@@ -212,7 +290,13 @@ fun FilterLibraryScreen(
     var shareTargetPreset by remember { mutableStateOf<FilterPreset?>(null) }
     var showOverlayGuideDialog by remember { mutableStateOf(false) }
 
-    val baseSample = remember { BuiltInPresets.createSamplePreviewBitmap(640, 360) }
+    // 真实摄影底片：三张按分类自动匹配（人像 / 夜景 / 风光），不再用几何测试图
+    val scenePhotos = remember {
+        DemoPhoto.entries.mapNotNull { p ->
+            runCatching { DemoPhotos.load(context, p) }.getOrNull()
+        }
+    }
+    val baseSample = scenePhotos.getOrNull(2) ?: scenePhotos.firstOrNull()
 
     val fileImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -232,69 +316,167 @@ fun FilterLibraryScreen(
             val matchFav = !favoritesOnly || p.isFavorite
             val matchCat = selectedCategory == null || p.category == selectedCategory
             val q = searchQuery.trim().lowercase()
-            val matchSearch = q.isEmpty() || p.name.lowercase().contains(q) || p.subtitle.lowercase().contains(q) || p.description.lowercase().contains(q)
+            val matchSearch = q.isEmpty() || p.name.lowercase().contains(q) ||
+                p.subtitle.lowercase().contains(q) || p.description.lowercase().contains(q)
             matchFav && matchCat && matchSearch
         }
     }
 
+    // 分类 → 场景底片：人像用窗光、夜景用街拍、其余用风光
+    fun sampleFor(preset: FilterPreset): android.graphics.Bitmap {
+        val idx = when (preset.category) {
+            FilterCategory.PORTRAIT -> 0
+            FilterCategory.NIGHT -> 1
+            FilterCategory.MONOCHROME -> 1
+            else -> 2
+        }
+        return scenePhotos.getOrNull(idx) ?: baseSample ?: BuiltInPresets.createSamplePreviewBitmap(640, 360)
+    }
+
     Column(
-        modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B0E14), ObsidianBg))).padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .background(ObsidianBg),
     ) {
-        PremiumHeroHeader(
-            eyebrow = "FILMVAULT  /  12 PRESETS",
-            title = "大师调色库",
-            subtitle = ".cube / .filterpack / OPHOTO1 口令 / 社区预设 · 一键悬浮窗参考",
-            icon = Icons.Rounded.Palette,
-            stats = listOf("总数" to "${allPresets.size}", "收藏" to "${allPresets.count { it.isFavorite }}", "导入" to "${allPresets.count { !it.isBuiltIn }}")
-        )
-        Spacer(Modifier.height(10.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            item { ActionButtonChip(Icons.Rounded.FileUpload, "导入 .cube/滤镜包", true) { fileImportLauncher.launch(arrayOf("*/*")) } }
-            item { ActionButtonChip(Icons.Rounded.ContentPaste, "口令/JSON", false) { showPasteDialog = true } }
-            item { ActionButtonChip(Icons.Rounded.Add, "自制配方", false) { showCreateDialog = true } }
-            item { ActionButtonChip(Icons.Rounded.Shuffle, "随机灵感", false) { filteredPresets.randomOrNull()?.let { onApplyAndOpenCamera(it.id) } } }
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = searchQuery, onValueChange = { searchQuery = it },
-            placeholder = { Text("搜索：夜景 / 胶片 / 人像 / 海风 / 银盐…", style = MaterialTheme.typography.bodySmall) },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(11.dp),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BrassGold, unfocusedBorderColor = HairlineBorder, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
-        )
-        Spacer(Modifier.height(8.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            item { TopHudChip("全部 ${allPresets.size}", selectedCategory == null && !favoritesOnly) { selectedCategory = null; favoritesOnly = false } }
-            item { TopHudChip("★ 收藏", favoritesOnly) { favoritesOnly = !favoritesOnly } }
-            items(FilterCategory.entries) { cat -> TopHudChip(cat.label, selectedCategory == cat) { selectedCategory = if (selectedCategory == cat) null else cat } }
-        }
-        if (overlayRunning) {
-            Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(BrassGold.copy(0.14f)).border(0.8.dp, BrassGold.copy(0.3f), RoundedCornerShape(10.dp)).clickable { MasterOverlayService.stop(context) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text("● 悬浮窗运行中 · 点击关闭", style = MaterialTheme.typography.labelSmall, color = BrassGold, fontWeight = FontWeight.Bold)
+        // 固定头部：标题 + 搜索 + 分类。用留白分组，不再有渐变页头与三枚统计格。
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            OphotoPageHeader(
+                title = "调色库",
+                subtitle = "${allPresets.size} 款预设 · 收藏 ${allPresets.count { it.isFavorite }} · 点缩略图即可用于拍摄",
+            )
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("搜索 夜景 / 胶片 / 人像 / 海风…", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = OphotoShape.Chip,
+                textStyle = MaterialTheme.typography.bodySmall,
+                leadingIcon = {
+                    Icon(Icons.Rounded.Search, null, tint = TextMuted, modifier = Modifier.size(17.dp))
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = BrassGold.copy(alpha = 0.6f),
+                    unfocusedBorderColor = MaterialHairline,
+                    focusedContainerColor = ControlPillBg.copy(alpha = 0.5f),
+                    unfocusedContainerColor = ControlPillBg.copy(alpha = 0.5f),
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                ),
+            )
+            Spacer(Modifier.height(10.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                item {
+                    OphotoChip(
+                        label = "全部",
+                        selected = selectedCategory == null && !favoritesOnly,
+                        onClick = { selectedCategory = null; favoritesOnly = false },
+                    )
+                }
+                item {
+                    OphotoChip(
+                        label = "收藏",
+                        selected = favoritesOnly,
+                        onClick = { favoritesOnly = !favoritesOnly },
+                        leadingIcon = Icons.Rounded.FavoriteBorder,
+                    )
+                }
+                items(FilterCategory.entries) { cat ->
+                    OphotoChip(
+                        label = cat.label,
+                        selected = selectedCategory == cat,
+                        onClick = { selectedCategory = if (selectedCategory == cat) null else cat },
+                    )
+                }
             }
+            Spacer(Modifier.height(10.dp))
+            if (overlayRunning) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(OphotoShape.Chip)
+                        .background(BrassGoldSoft)
+                        .clickable { MasterOverlayService.stop(context) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(BrassGold))
+                    Spacer(Modifier.width(7.dp))
+                    Text("悬浮参考窗运行中 · 点击关闭", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            // 导入等低频操作收进一个胶囊，避免四个彩色按钮抢占视线
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OphotoChip(
+                    label = "导入 .cube",
+                    onClick = { fileImportLauncher.launch(arrayOf("*/*")) },
+                    leadingIcon = Icons.Rounded.FileUpload,
+                )
+                OphotoChip(
+                    label = "口令",
+                    onClick = { showPasteDialog = true },
+                    leadingIcon = Icons.Rounded.ContentPaste,
+                )
+                OphotoChip(
+                    label = "自制",
+                    onClick = { showCreateDialog = true },
+                    leadingIcon = Icons.Rounded.Add,
+                )
+                OphotoChip(
+                    label = "随机",
+                    onClick = { filteredPresets.randomOrNull()?.let { onApplyAndOpenCamera(it.id) } },
+                    leadingIcon = Icons.Rounded.Shuffle,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.height(10.dp))
+
         if (filteredPresets.isEmpty()) {
-            EmptyState(title = "暂无匹配滤镜", desc = "调整分类或关键词", modifier = Modifier.weight(1f).padding(horizontal = 24.dp), onAction = { selectedCategory = null; favoritesOnly = false; searchQuery = "" }, actionLabel = "重置筛选")
+            EmptyState(
+                title = "没有匹配的预设",
+                desc = "换个关键词，或清除筛选条件",
+                modifier = Modifier.weight(1f),
+                onAction = { selectedCategory = null; favoritesOnly = false; searchQuery = "" },
+                actionLabel = "清除筛选",
+            )
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.weight(1f)) {
+            // 两列画廊（Clarity：一屏看到更多色彩，缩略图足够大以判断影调）
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (filteredPresets.size == 1) 1 else 2),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
+                modifier = Modifier.weight(1f),
+            ) {
                 items(filteredPresets, key = { it.id }) { preset ->
                     MasterPresetCard(
-                        preset = preset, sampleBitmap = baseSample, container = container,
+                        preset = preset,
+                        sampleBitmap = sampleFor(preset),
+                        container = container,
                         onApplyCamera = { onApplyAndOpenCamera(preset.id) },
                         onLaunchOverlay = {
-                            if (!CameraPermissionHelper.canDrawFloatingOverlay(context)) showOverlayGuideDialog = true
-                            else { scope.launch { container.preferences.setOverlayPresetId(preset.id) }; MasterOverlayService.startWithPreset(context, preset.id, true) }
+                            if (!CameraPermissionHelper.canDrawFloatingOverlay(context)) {
+                                showOverlayGuideDialog = true
+                            } else {
+                                scope.launch { container.preferences.setOverlayPresetId(preset.id) }
+                                MasterOverlayService.startWithPreset(context, preset.id, true)
+                            }
                         },
                         onShareQr = { shareTargetPreset = preset },
                         onExportCube = {
                             scope.launch {
                                 val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
                                 val cubeFile = File(exportDir, "${preset.id}.cube")
-                                withContext(Dispatchers.Default) { cubeFile.writeText(BuiltInPresets.exportPresetCubeText(preset, 17), Charsets.UTF_8) }
+                                withContext(Dispatchers.Default) {
+                                    cubeFile.writeText(BuiltInPresets.exportPresetCubeText(preset, 17), Charsets.UTF_8)
+                                }
                                 val shareUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cubeFile)
-                                val sendIntent = Intent(Intent.ACTION_SEND).apply { type = "application/octet-stream"; putExtra(Intent.EXTRA_STREAM, shareUri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/octet-stream"
+                                    putExtra(Intent.EXTRA_STREAM, shareUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
                                 context.startActivity(Intent.createChooser(sendIntent, "导出 ${preset.name}.cube"))
                             }
                         },

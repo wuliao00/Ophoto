@@ -84,6 +84,10 @@ data class UserSettings(
     val autoBrightnessRescue: Boolean = true,
     /** 半按/触控时是否保持 AE 锁定，避免点测光把画面压暗。 */
     val keepAeOnTap: Boolean = false,
+    /** Deference：取景时 4 秒无操作自动淡出工具栏，专注构图。 */
+    val autoHideChrome: Boolean = true,
+    /** 长按取景画面隐藏全部叠层（纯构图模式）。 */
+    val longPressCleanView: Boolean = true,
 )
 
 class AppPreferences(private val context: Context) {
@@ -113,6 +117,8 @@ class AppPreferences(private val context: Context) {
         val VIEWFINDER_BRIGHTNESS = stringPreferencesKey("viewfinder_brightness")
         val AUTO_BRIGHTNESS_RESCUE = booleanPreferencesKey("auto_brightness_rescue")
         val KEEP_AE_ON_TAP = booleanPreferencesKey("keep_ae_on_tap")
+        val AUTO_HIDE_CHROME = booleanPreferencesKey("auto_hide_chrome")
+        val LONG_PRESS_CLEAN_VIEW = booleanPreferencesKey("long_press_clean_view")
     }
 
     val settingsFlow: Flow<UserSettings> = context.ophotoDataStore.data.map { pref ->
@@ -150,6 +156,8 @@ class AppPreferences(private val context: Context) {
                 ?: ViewfinderBrightnessMode.BALANCED,
             autoBrightnessRescue = pref[Keys.AUTO_BRIGHTNESS_RESCUE] ?: true,
             keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
+            autoHideChrome = pref[Keys.AUTO_HIDE_CHROME] ?: true,
+            longPressCleanView = pref[Keys.LONG_PRESS_CLEAN_VIEW] ?: true,
         )
     }
 
@@ -193,6 +201,8 @@ class AppPreferences(private val context: Context) {
                     ?: ViewfinderBrightnessMode.BALANCED,
                 autoBrightnessRescue = pref[Keys.AUTO_BRIGHTNESS_RESCUE] ?: true,
                 keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
+                autoHideChrome = pref[Keys.AUTO_HIDE_CHROME] ?: true,
+                longPressCleanView = pref[Keys.LONG_PRESS_CLEAN_VIEW] ?: true,
             )
             val next = block(current)
             pref[Keys.SHUTTER_SOUND] = next.shutterSound
@@ -218,6 +228,8 @@ class AppPreferences(private val context: Context) {
             pref[Keys.VIEWFINDER_BRIGHTNESS] = next.viewfinderBrightness.name
             pref[Keys.AUTO_BRIGHTNESS_RESCUE] = next.autoBrightnessRescue
             pref[Keys.KEEP_AE_ON_TAP] = next.keepAeOnTap
+            pref[Keys.AUTO_HIDE_CHROME] = next.autoHideChrome
+            pref[Keys.LONG_PRESS_CLEAN_VIEW] = next.longPressCleanView
         }
     }
 

@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -45,6 +47,8 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -111,6 +115,11 @@ import com.ophoto.ui.theme.GlowBrass
 import com.ophoto.ui.theme.GlowOrange
 import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
+import com.ophoto.ui.theme.MaterialHairline
+import com.ophoto.ui.theme.MaterialRegular
+import com.ophoto.ui.theme.MaterialThin
+import com.ophoto.ui.theme.OphotoShape
+import com.ophoto.ui.theme.pressScale
 import com.ophoto.ui.theme.OphotoCard
 import com.ophoto.ui.theme.OphotoChip
 import com.ophoto.ui.theme.ObsidianBg
@@ -124,6 +133,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import com.ophoto.data.repository.DemoPhotos
+import com.ophoto.ui.theme.BrassGoldSoft
+import com.ophoto.ui.theme.OphotoBrassButton
+import com.ophoto.ui.theme.OphotoOutlinedButton
+import com.ophoto.ui.theme.TextOnAccent
 
 private enum class ProDialTab(val label: String) {
     EV("EV"),
@@ -156,11 +179,16 @@ private val SHUTTER_STOPS = listOf(
 /** 预设的变焦档位（等效主摄/超广/中焦/长焦）。 */
 private val ZOOM_PRESETS = listOf(0.6f, 1.0f, 2.0f, 3.0f, 5.0f)
 
+/** 相机页的三种界面密度（Deference：让内容决定控件的去留）。 */
+private enum class ChromeDensity { FULL, COMPACT, HIDDEN }
+
 @Composable
 fun CameraScreen(
     container: OphotoContainer,
     onJumpToEditor: () -> Unit,
     modifier: Modifier = Modifier,
+    onChromeInteraction: () -> Unit = {},
+    onChromeIdle: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -185,30 +213,22 @@ fun CameraScreen(
 
     var captureMode by remember { mutableStateOf(CameraCaptureMode.PHOTO) }
     var flashSetting by remember { mutableStateOf(FlashSetting.OFF) }
-    val aspectRatio = ViewfinderAspectRatio.RATIO_4_3
     var timerSeconds by remember { mutableIntStateOf(0) }
     var countdownRemaining by remember { mutableIntStateOf(0) }
     var burstCount by remember { mutableIntStateOf(1) }
     var bracketMode by remember { mutableStateOf(false) }
-    var showFilterTray by remember { mutableStateOf(false) }
-    var showBrightnessPanel by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf<CameraSheet?>(null) }
     var activeProDial by remember { mutableStateOf(ProDialTab.EV) }
 
     var selectedPresetId by remember { mutableStateOf<String?>(null) }
     var filterStrength by remember { mutableFloatStateOf(settings.defaultFilterStrength) }
 
-    /**
-     * 曝光解耦：userExposure 决定成片，previewExposure 决定取景观感。
-     * 之前两者共用同一 EV，导致「为了看亮而提亮预览」会污染成片曝光；
-     * 现在起 previewExposure 只是显示层的 EV，拍完会自动复位。
-     */
     var userExposure by remember {
         mutableStateOf(ExposureConfig(manualMode = false, iso = 100, shutterSeconds = 1.0 / 125.0, evCompensation = 0f))
     }
     var brightnessMode by remember { mutableStateOf(settings.viewfinderBrightness) }
     var displayLift by remember { mutableFloatStateOf(0f) }
     var manualBoost by remember { mutableFloatStateOf(0f) }
-    // 用户在亮度面板里点过「手动增益」或方案后，自适应不再和手动值打架。
     var autoLiftEnabled by remember { mutableStateOf(true) }
     var manualBoostTouched by remember { mutableStateOf(false) }
     var focusConfig by remember { mutableStateOf(FocusConfig()) }
@@ -220,7 +240,25 @@ fun CameraScreen(
     var isRecordingVideo by remember { mutableStateOf(false) }
     var activeFieldBanner by remember { mutableStateOf<String?>(null) }
 
-    // 取景 View 走共享宿主：切页返回时复用同一 PreviewView，不再重建会话。
+    // 沉浸控制：交互 → FULL；静止 4s → COMPACT；长按照片 → HIDDEN
+    var chromeDensity by remember { mutableStateOf(ChromeDensity.FULL) }
+    fun wake() {
+        chromeDensity = ChromeDensity.FULL
+        onChromeInteraction()
+    }
+
+    LaunchedEffect(settings.autoHideChrome, chromeDensity, sheet, isRecordingVideo) {
+        if (!settings.autoHideChrome || sheet != null || isRecordingVideo) return@LaunchedEffect
+        if (chromeDensity == ChromeDensity.FULL) {
+            delay(4200)
+            chromeDensity = ChromeDensity.COMPACT
+            onChromeIdle()
+        }
+    }
+
+    // 再次进入相机页时，把被其他页面隐去的控制条唤回
+    LaunchedEffect(Unit) { onChromeInteraction() }
+
     val previewView = remember(context, host) {
         host.ensurePreviewView {
             PreviewView(context).apply {
@@ -233,10 +271,8 @@ fun CameraScreen(
     var previewStreaming by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf<String?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
-    var bindingLabel by remember { mutableStateOf("") }
     var previewResolution by remember { mutableStateOf("") }
 
-    // 真实帧采样：亮度、直方图、斑马纹都只用真实预览帧，不再靠「假设画面正常」。
     val sampler = remember { PreviewSampler() }
     var frameLuma by remember { mutableStateOf<FrameLuma?>(null) }
     var liveHistogram by remember { mutableStateOf<com.ophoto.engine.filter.HistogramData?>(null) }
@@ -269,7 +305,6 @@ fun CameraScreen(
             container.cameraEngine.setZoomRatio(zoomRatio)
             container.cameraEngine.setWhiteBalance(wbConfig)
             val engine = container.cameraEngine as? com.ophoto.engine.camera.CameraX2Engine
-            bindingLabel = engine?.lastBinding?.sessionLabel.orEmpty()
             previewResolution = engine?.previewFormat?.display.orEmpty()
             delay(9000)
             if (!host.streaming.value) {
@@ -283,34 +318,24 @@ fun CameraScreen(
         }
     }
 
-    // 切换亮度方案 / 深度手动提亮时，把预览 EV 同步给引擎（成片不受影响）。
     LaunchedEffect(previewExposure) {
         if (hasCameraPerm) container.cameraEngine.setExposure(previewExposure)
     }
 
-    // ~1Hz 真实帧分析：亮度自适应提亮 + 直方图刷新（斑马纹只在开启时才取帧）。
-    LaunchedEffect(hasCameraPerm, previewStreaming, settings.showHistogram, brightnessMode) {
+    LaunchedEffect(hasCameraPerm, previewStreaming, settings.showHistogram, settings.showZebraStripes) {
         while (hasCameraPerm && previewStreaming) {
             delay(650)
-            val frame = withContext(Dispatchers.Default) {
-                runCatching { previewView.bitmap }.getOrNull()
-            }
+            val frame = withContext(Dispatchers.Default) { runCatching { previewView.bitmap }.getOrNull() }
             if (frame != null) {
                 frameLuma = withContext(Dispatchers.Default) { sampler.sample(frame) }
                 if (settings.showHistogram) {
                     liveHistogram = withContext(Dispatchers.Default) { sampler.histogram(frame) }
                 }
-                if (!settings.showZebraStripes) {
-                    // 斑马纹关闭时立即释放引用，避免持有整帧位图。
-                    capturedFrame = null
-                } else {
-                    capturedFrame = frame
-                }
+                capturedFrame = if (settings.showZebraStripes) frame else null
             }
         }
     }
 
-    // 自适应提亮：画面暗就抬亮，恢复后自动回落；手动增益优先，不再叠乘避免反复跳动。
     LaunchedEffect(frameLuma, brightnessMode, manualBoost, manualBoostTouched, autoLiftEnabled) {
         val autoLift = if (autoLiftEnabled && !manualBoostTouched) {
             PreviewSampler.requiredLift(frameLuma) * brightnessMode.autoLiftScale
@@ -318,7 +343,6 @@ fun CameraScreen(
             0f
         }
         val target = if (manualBoostTouched) manualBoost else (autoLift + manualBoost).coerceIn(0f, 0.40f)
-        // 平滑过渡，避免忽明忽暗
         displayLift = displayLift * 0.4f + target.coerceIn(0f, 0.45f) * 0.6f
     }
 
@@ -332,7 +356,6 @@ fun CameraScreen(
         }
     }
 
-    // Receive 1-click camera preset/composition setup from On-Site Photography Assistant
     LaunchedEffect(container) {
         container.fieldSetupCommands.collect { cmd ->
             selectedPresetId = cmd.presetId
@@ -352,12 +375,29 @@ fun CameraScreen(
     var lastCapturedThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
     val rollDegrees = rememberDeviceRollDegrees(enabled = settings.showLeveler)
-    val animatedRoll by animateFloatAsState(targetValue = rollDegrees, animationSpec = tween(220, easing = FastOutSlowInEasing), label = "rollSmooth")
+    val animatedRoll by animateFloatAsState(
+        targetValue = rollDegrees,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "rollSmooth",
+    )
     var shutterFlash by remember { mutableStateOf(false) }
-    val flashAlpha by animateFloatAsState(targetValue = if (shutterFlash) 0.92f else 0f, animationSpec = tween(if (shutterFlash) 80 else 420), label = "flash")
-    val shutterScale by animateFloatAsState(targetValue = if (shutterFlash) 0.90f else 1f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 520f), label = "shutterScale")
+    val flashAlpha by animateFloatAsState(
+        targetValue = if (shutterFlash) 0.9f else 0f,
+        animationSpec = tween(if (shutterFlash) 70 else 380),
+        label = "flash",
+    )
+    val shutterScale by animateFloatAsState(
+        targetValue = if (shutterFlash) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 600f),
+        label = "shutterScale",
+    )
 
-    /** 一键修复黑屏：把 AE 拉回自动、清空手动 ISO/快门/EV、清空 WB 锁定。 */
+    fun setZoom(z: Float) {
+        zoomRatio = z
+        container.cameraEngine.setZoomRatio(z)
+        wake()
+    }
+
     fun rescueExposure() {
         scope.launch {
             container.cameraEngine.resetExposureBaseline()
@@ -375,6 +415,7 @@ fun CameraScreen(
     }
 
     fun triggerCapture() {
+        wake()
         scope.launch {
             if (!isRecordingVideo && !hasCameraPerm) {
                 permLauncher.launch(CameraPermissionHelper.requiredCameraPermissions(includeAudio = false).toTypedArray())
@@ -423,7 +464,7 @@ fun CameraScreen(
             val config = CaptureConfig(
                 mode = captureMode,
                 flashMode = flashSetting,
-                aspectRatio = aspectRatio,
+                aspectRatio = ViewfinderAspectRatio.RATIO_4_3,
                 enableRaw = settings.enableRawWhenSupported,
                 exposure = userExposure,
                 focus = focusConfig,
@@ -490,33 +531,29 @@ fun CameraScreen(
                     createdAt = System.currentTimeMillis(),
                 ),
             )
-            // Pro shutter flash: 80ms burst + auto-fade
+            // 刚拍的照片直接进暗房：点缩略图即可继续精修
+            container.openMediaInEditor(uriStr)
             shutterFlash = true
-            delay(90)
+            delay(80)
             shutterFlash = false
-            Toast.makeText(
-                context,
-                "已保存 ${activePreset?.name ?: "原片"}",
-                Toast.LENGTH_SHORT,
-            ).show()
+            Toast.makeText(context, "已保存 ${activePreset?.name ?: "原片"}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Hardware Volume Key mapping per Doc §6
     LaunchedEffect(container, settings.volumeKeyAction) {
         container.hardwareKeyEvents.collect { keyCode ->
             when (settings.volumeKeyAction) {
                 VolumeKeyAction.SHUTTER -> triggerCapture()
                 VolumeKeyAction.ZOOM -> {
                     val delta = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 0.5f else -0.5f
-                    zoomRatio = (zoomRatio + delta).coerceIn(0.6f, 6.0f)
-                    container.cameraEngine.setZoomRatio(zoomRatio)
+                    setZoom((zoomRatio + delta).coerceIn(0.6f, 6.0f))
                 }
                 VolumeKeyAction.EXPOSURE -> {
                     val delta = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 0.3f else -0.3f
                     userExposure = userExposure.copy(
                         evCompensation = (userExposure.evCompensation + delta).coerceIn(-2f, 2f),
                     )
+                    wake()
                 }
             }
         }
@@ -525,126 +562,20 @@ fun CameraScreen(
     val effectiveEv = previewExposure.evCompensation
     val isDarkFrame = frameLuma?.isBlack == true && settings.autoBrightnessRescue
     val isDimFrame = frameLuma?.isDim == true
+    val showHud = chromeDensity != ChromeDensity.HIDDEN
 
-    Column(
+    // ── 全屏取景画布（内容即界面） ────────────────────────────────────────────
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF07090C))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+            .background(Color.Black),
     ) {
-        // ── 1. 顶部仪表条（曝光 / 闪光 / 构图 / 定时 / 连拍）────────────────────────
-        CameraTopDeck(
-            effectiveEv = effectiveEv,
-            brightnessLabel = brightnessMode.label,
-            flashLabel = flashSetting.label,
-            flashActive = flashSetting != FlashSetting.OFF,
-            guideLabel = settings.compositionGuide.label,
-            guideActive = settings.compositionGuide != CompositionGuideType.NONE,
-            timerSeconds = timerSeconds,
-            burstLabel = when {
-                bracketMode -> "包围 ±2EV"
-                burstCount > 1 -> "连拍 ${burstCount}张"
-                else -> "单张"
-            },
-            burstActive = bracketMode || burstCount > 1,
-            brightnessActive = brightnessMode != ViewfinderBrightnessMode.NATURAL,
-            onExposureClick = {
-                val steps = listOf(-1.3f, -0.7f, 0f, 0.7f, 1.3f, 2f)
-                val next = steps[(steps.indexOfFirst { kotlin.math.abs(it - userExposure.evCompensation) < 0.2f } + 1)
-                    .coerceIn(0, steps.lastIndex)]
-                userExposure = userExposure.copy(manualMode = false, aeLocked = false, evCompensation = next)
-            },
-            onBrightnessClick = { showBrightnessPanel = !showBrightnessPanel },
-            onFlashClick = {
-                val all = FlashSetting.entries
-                flashSetting = all[(all.indexOf(flashSetting) + 1) % all.size]
-            },
-            onGuideClick = {
-                val all = CompositionGuideType.entries
-                val next = all[(all.indexOf(settings.compositionGuide) + 1) % all.size]
-                scope.launch { container.preferences.update { it.copy(compositionGuide = next) } }
-            },
-            onTimerClick = {
-                timerSeconds = when (timerSeconds) {
-                    0 -> 3
-                    3 -> 10
-                    else -> 0
-                }
-            },
-            onBurstClick = {
-                when {
-                    !bracketMode && burstCount == 1 -> burstCount = 5
-                    burstCount > 1 -> {
-                        burstCount = 1
-                        bracketMode = true
-                    }
-                    else -> bracketMode = false
-                }
-            },
-        )
-
-        AnimatedVisibility(
-            visible = showBrightnessPanel,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            BrightnessControlPanel(
-                mode = brightnessMode,
-                onSelectMode = {
-                    brightnessMode = it
-                    scope.launch { container.preferences.update { s -> s.copy(viewfinderBrightness = it) } }
-                },
-                manualBoost = manualBoost,
-                onManualBoost = {
-                    manualBoost = it
-                    manualBoostTouched = it > 0.001f
-                },
-                autoLiftEnabled = autoLiftEnabled,
-                onToggleAutoLift = { autoLiftEnabled = it },
-                frameLuma = frameLuma,
-                onRescue = { rescueExposure() },
-            )
-        }
-
-        activeFieldBanner?.let { tip ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp)
-                    .background(Color(0xFF13241D), RoundedCornerShape(10.dp))
-                    .border(0.8.dp, OpticalEmerald.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                    .clickable { activeFieldBanner = null }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "✦ 现场指导已载入：$tip",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OpticalEmerald,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("✕", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-            }
-        }
-
-        // ── 2. 全幅取景框 ────────────────────────────────────────────────────────
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(vertical = 5.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF05070A))
-                .border(1.dp, Color(0xFF39424F), RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(settings.touchToCapture, settings.keepAeOnTap) {
-                        detectTapGestures { offset ->
+                .fillMaxSize()
+                .pointerInput(settings.touchToCapture, settings.keepAeOnTap, settings.longPressCleanView) {
+                    detectTapGestures(
+                        onTap = { offset ->
                             val (nx, ny) = normalizedTap(offset.x, offset.y, size.width, size.height)
                             val nextFocus = focusConfig.copy(
                                 manualFocus = false,
@@ -653,66 +584,68 @@ fun CameraScreen(
                             )
                             focusConfig = nextFocus
                             container.cameraEngine.setFocus(nextFocus)
-                            if (!settings.keepAeOnTap) {
-                                // 点哪里对焦/测光，但不把 AE 长期锁在暗部（否则构图一半发黑）
-                                container.cameraEngine.setExposure(previewExposure)
-                            }
+                            if (!settings.keepAeOnTap) container.cameraEngine.setExposure(previewExposure)
+                            wake()
                             if (settings.touchToCapture) triggerCapture()
-                        }
-                    },
-            ) {
-                if (hasCameraPerm) {
-                    AndroidView(
-                        factory = { previewView },
-                        modifier = Modifier.fillMaxSize(),
+                        },
+                        onLongPress = {
+                            if (settings.longPressCleanView) {
+                                chromeDensity = if (chromeDensity == ChromeDensity.HIDDEN) ChromeDensity.FULL else ChromeDensity.HIDDEN
+                                onChromeIdle()
+                            }
+                        },
                     )
+                },
+        ) {
+            if (hasCameraPerm) {
+                AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
-                    // 观感提亮：只影响屏幕，不影响成片；Screen 混合避免把黑色抬成灰雾。
-                    ViewfinderLiftOverlay(lift = displayLift, modifier = Modifier.fillMaxSize())
-                    ViewfinderBloomOverlay(
-                        strength = if (frameLuma?.isBlack == true) 0.16f else 0f,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                // 观感提亮（只作用于屏幕，不影响成片）
+                ViewfinderLiftOverlay(lift = displayLift, modifier = Modifier.fillMaxSize())
+                ViewfinderBloomOverlay(
+                    strength = if (frameLuma?.isBlack == true) 0.14f else 0f,
+                    modifier = Modifier.fillMaxSize(),
+                )
 
-                    if (settings.showZebraStripes && capturedFrame != null) {
-                        ZebraOverlay(
-                            bitmap = capturedFrame,
-                            modifier = Modifier.fillMaxSize(),
-                            threshold = 0.94f,
+                if (settings.showZebraStripes && capturedFrame != null) {
+                    ZebraOverlay(bitmap = capturedFrame, modifier = Modifier.fillMaxSize(), threshold = 0.94f)
+                }
+
+                if (!previewStreaming) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .clip(OphotoShape.Card)
+                            .background(MaterialRegular)
+                            .padding(horizontal = 22.dp, vertical = 18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            previewError ?: "正在启动相机…",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
-                    }
-
-                    if (!previewStreaming) {
-                        Column(
-                            modifier = Modifier.align(Alignment.Center)
-                                .background(Color(0xE6141A22), RoundedCornerShape(18.dp))
-                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(
-                                previewError ?: "正在启动相机…",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalButton(onClick = { retryCount++ }) { Text("重试相机") }
-                                if (frameLuma?.isBlack == true) {
-                                    OutlinedButton(onClick = { rescueExposure() }) { Text("修复曝光") }
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OphotoBrassButton(onClick = { retryCount++ }, text = "重试")
+                            if (frameLuma?.isBlack == true) {
+                                OphotoOutlinedButton(onClick = { rescueExposure() }) {
+                                    Text("修复曝光", style = MaterialTheme.typography.labelLarge)
                                 }
                             }
                         }
                     }
-                } else {
-                    CameraPermissionGate(onRequest = {
-                        permLauncher.launch(
-                            CameraPermissionHelper.requiredCameraPermissions(includeAudio = false).toTypedArray(),
-                        )
-                    })
                 }
+            } else {
+                CameraPermissionGate(onRequest = {
+                    permLauncher.launch(
+                        CameraPermissionHelper.requiredCameraPermissions(includeAudio = false),
+                    )
+                })
+            }
 
-                // 取景边角刻度 + 构图辅助线 + 电子水平仪 + 对焦指示
-                FinderCornerTicks(accent = Color.White.copy(alpha = 0.42f), modifier = Modifier.fillMaxSize())
+            // 监看叠层：只在 FULL 密度下显示，避免遮挡构图
+            if (showHud) {
                 CompositionOverlayCanvas(
                     guideType = settings.compositionGuide,
                     showLeveler = settings.showLeveler,
@@ -721,539 +654,566 @@ fun CameraScreen(
                         focusConfig.normalizedTapY?.let { y -> x to y }
                     },
                 )
+            }
 
-                // 快门闪光
-                if (flashAlpha > 0.01f) {
-                    Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
-                }
+            if (flashAlpha > 0.01f) {
+                Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.9f)))
+            }
 
-                // 底部 HUD 带：左「直方图 + 实测亮度」、右「焦段档位」，全部来自真实预览帧
-                if (hasCameraPerm) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom,
-                        ) {
-                            if (settings.showHistogram && liveHistogram != null) {
-                                LiveHistogramHud(histogram = liveHistogram!!)
-                            } else {
-                                Spacer(Modifier.width(1.dp))
-                            }
-                            if (frameLuma != null) {
-                                LumaMeterBar(
-                                    luma = frameLuma!!,
-                                    effectiveEv = effectiveEv,
-                                    zoomLabel = formatZoomLabel(zoomRatio),
-                                )
-                            }
-                        }
-                        ZoomPillRow(
-                            zoomRatio = zoomRatio,
-                            onZoom = { z ->
-                                zoomRatio = z
-                                container.cameraEngine.setZoomRatio(z)
-                            },
-                        )
-                    }
-                }
+            if (countdownRemaining > 0) {
+                Text(
+                    text = countdownRemaining.toString(),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .clip(CircleShape)
+                        .background(Color(0x99000000))
+                        .padding(horizontal = 28.dp, vertical = 16.dp),
+                )
+            }
+        }
 
-                // 右上：暗场/偏暗提示（可一键修复）
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = (isDarkFrame || isDimFrame) && previewStreaming,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.TopEnd),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(10.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xE6311208), RoundedCornerShape(10.dp))
-                            .border(1.dp, AlertCrimson.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                            .clickable { rescueExposure() }
-                            .padding(horizontal = 9.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Exposure,
-                            contentDescription = null,
-                            tint = BrassGold,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = if (isDarkFrame) "画面过暗 · 点此修复" else "偏暗 · 提亮",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                        )
-                    }
-                }
-
-                if (countdownRemaining > 0) {
-                    Text(
-                        text = countdownRemaining.toString(),
-                        style = MaterialTheme.typography.displaySmall,
-                        color = BrassGold,
-                        modifier = Modifier
-                            .background(Color(0xAA000000), CircleShape)
-                            .padding(horizontal = 26.dp, vertical = 14.dp),
+        // ── 顶部：状态胶囊（FULL 显示完整，COMPACT 只留模式与关闭） ─────────────
+        androidx.compose.animation.AnimatedVisibility(
+            visible = chromeDensity == ChromeDensity.FULL,
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)),
                     )
-                }
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 左：曝光读数（唯一强调色用在可操作处）
+                    HudCapsule(
+                        onClick = {
+                            // 轻点循环 EV：0 → +0.7 → +1.3 → -0.7 → -1.3 → 0
+                            val steps = listOf(0f, 0.7f, 1.3f, -0.7f, -1.3f)
+                            val idx = steps.indexOfFirst { kotlin.math.abs(it - userExposure.evCompensation) < 0.2f }
+                            val next = steps[if (idx < 0) 1 else (idx + 1) % steps.size]
+                            userExposure = userExposure.copy(
+                                manualMode = false, aeLocked = false, evCompensation = next,
+                            )
+                            wake()
+                        },
+                        highlighted = kotlin.math.abs(userExposure.evCompensation) > 0.05f,
+                    ) {
+                        Text(
+                            text = "EV ${"%+.1f".format(effectiveEv)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (kotlin.math.abs(userExposure.evCompensation) > 0.05f) TextOnAccent else TextPrimary,
+                        )
+                    }
 
-                if (isRecordingVideo) {
+                    // 中：模式切换（唯一的横向主控）
                     Row(
                         modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(10.dp)
-                            .background(Color(0xCC2A0B0B), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .clip(OphotoShape.Chip)
+                            .background(Color(0x66000000))
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
+                        listOf(
+                            CameraCaptureMode.PHOTO,
+                            CameraCaptureMode.PORTRAIT,
+                            CameraCaptureMode.NIGHT,
+                            CameraCaptureMode.PRO,
+                            CameraCaptureMode.VIDEO,
+                        ).forEach { mode ->
+                            val active = captureMode == mode
+                            Text(
+                                text = mode.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (active) TextOnAccent else TextSecondary,
+                                modifier = Modifier
+                                    .clip(OphotoShape.Chip)
+                                    .background(if (active) BrassGold else Color.Transparent)
+                                    .clickable {
+                                        captureMode = mode
+                                        wake()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+
+                    // 右：闪光 + 更多
+                    HudCapsule(onClick = {
+                        val all = FlashSetting.entries
+                        flashSetting = all[(all.indexOf(flashSetting) + 1) % all.size]
+                        wake()
+                    }, highlighted = flashSetting != FlashSetting.OFF) {
                         Icon(
-                            Icons.Rounded.Videocam,
-                            contentDescription = null,
-                            tint = AlertCrimson,
-                            modifier = Modifier.size(13.dp),
+                            Icons.Rounded.WbSunny,
+                            contentDescription = "闪光",
+                            tint = if (flashSetting != FlashSetting.OFF) TextOnAccent else TextPrimary,
+                            modifier = Modifier.size(15.dp),
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text("REC", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    }
+                }
+
+                // 第二行：真实读数 + 现场指导提示
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = buildHealthLine(
+                            streaming = previewStreaming,
+                            resolution = previewResolution,
+                            frameLuma = frameLuma,
+                            zoomLabel = formatZoomLabel(zoomRatio),
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    activeFieldBanner?.let { tip ->
+                        Text(
+                            text = "✦ $tip",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = OpticalEmerald,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(OphotoShape.Chip)
+                                .background(Color(0xCC0A1A12))
+                                .clickable { activeFieldBanner = null }
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
                     }
                 }
             }
         }
 
-        // ── 3. 专业手动参数面板 ─────────────────────────────────────────────────
-        if (captureMode == CameraCaptureMode.PRO || captureMode == CameraCaptureMode.LONG_EXPOSURE) {
-            ProParameterPanel(
-                activeTab = activeProDial,
-                onSelectTab = { activeProDial = it },
-                exposure = userExposure,
-                focus = focusConfig,
-                wb = wbConfig,
-                onUpdateExposure = {
-                    userExposure = it
-                    container.cameraEngine.setExposure(
-                        it.copy(evCompensation = if (it.manualMode) it.evCompensation else previewExposure.evCompensation),
-                    )
-                },
-                onUpdateFocus = {
-                    focusConfig = it
-                    container.cameraEngine.setFocus(it)
-                },
-                onUpdateWb = {
-                    wbConfig = it
-                    container.cameraEngine.setWhiteBalance(it)
-                },
-            )
+        // ── 暗场诊断（Deference：只在异常时出现） ──────────────────────────────
+        androidx.compose.animation.AnimatedVisibility(
+            visible = (isDarkFrame || isDimFrame) && previewStreaming && showHud,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(top = 96.dp)
+                    .clip(OphotoShape.Chip)
+                    .background(Color(0xE0241207))
+                    .border(0.7.dp, AlertCrimson.copy(alpha = 0.5f), OphotoShape.Chip)
+                    .clickable { rescueExposure() }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Exposure, null, tint = BrassGold, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (isDarkFrame) "画面过暗 · 点此修复" else "偏暗 · 点此提亮",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextPrimary,
+                )
+            }
         }
 
-        // ── 4. 滤镜抽屉 ────────────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = showFilterTray,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+        // ── REC 指示 ──────────────────────────────────────────────────────────
+        if (isRecordingVideo) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 14.dp, top = 96.dp)
+                    .clip(OphotoShape.Chip)
+                    .background(Color(0xCC2A0B0B))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(AlertCrimson))
+                Spacer(Modifier.width(6.dp))
+                Text("REC", style = MaterialTheme.typography.labelSmall, color = Color.White)
+            }
+        }
+
+        // ── 底部：主控甲板 ────────────────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD9000000), Color(0xF2000000))))
+                .navigationBarsPadding()
+                .padding(top = 18.dp, bottom = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            OphotoCard(
-                modifier = Modifier.fillMaxWidth(),
-                borderDp = 1.dp,
+            // 测光/直方图：只在 FULL 且需要时出现
+            androidx.compose.animation.AnimatedVisibility(
+                visible = chromeDensity == ChromeDensity.FULL && hasCameraPerm && frameLuma != null,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Text(
-                        text = "拍照滤镜 · ${activePreset?.name ?: "原片直出"}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = BrassGold,
-                    )
-                    if (activePreset != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.width(170.dp),
-                        ) {
-                            Text(
-                                text = "${(filterStrength * 100).roundToInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Slider(
-                                value = filterStrength,
-                                onValueChange = { filterStrength = it },
-                                valueRange = 0f..1f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = BrassGold,
-                                    activeTrackColor = BrassGold,
-                                ),
-                                modifier = Modifier.height(22.dp),
-                            )
-                        }
+                    if (settings.showHistogram && liveHistogram != null) {
+                        LiveHistogramHud(histogram = liveHistogram!!)
+                    } else {
+                        Spacer(Modifier.width(1.dp))
                     }
-                }
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                ) {
-                    item {
-                        FilterQuickChip(
-                            name = "原片",
-                            selected = selectedPresetId == null,
-                            accent = TextSecondary,
-                            onClick = { selectedPresetId = null },
-                        )
-                    }
-                    items(presets, key = { it.id }) { preset ->
-                        val parsedAccent = remember(preset.accentHex) {
-                            runCatching { Color(android.graphics.Color.parseColor(preset.accentHex)) }
-                                .getOrDefault(BrassGold)
-                        }
-                        FilterQuickChip(
-                            name = preset.name,
-                            selected = selectedPresetId == preset.id,
-                            accent = parsedAccent,
-                            onClick = { selectedPresetId = preset.id },
-                        )
+                    frameLuma?.let { luma ->
+                        LumaMeterRow(luma = luma, effectiveEv = effectiveEv)
                     }
                 }
             }
-        }
 
-        // ── 5. 模式选择 + 快门甲板 ─────────────────────────────────────────────
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-        ) {
-            items(CameraCaptureMode.entries) { mode ->
-                val selected = mode == captureMode
-                Text(
-                    text = mode.label,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (selected) ObsidianBg else TextMuted,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(if (selected) BrassGold else Color.Transparent)
-                        .clickable { captureMode = mode }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // 左：暗房入口 / 最近拍摄缩略图
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(ControlPillBg)
-                    .border(1.2.dp, BrassGold.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-                    .clickable { onJumpToEditor() },
-                contentAlignment = Alignment.Center,
-            ) {
-                val thumb = lastCapturedThumb
-                if (thumb != null) {
-                    Image(
-                        bitmap = thumb.asImageBitmap(),
-                        contentDescription = "最近拍摄",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Rounded.PhotoLibrary,
-                        contentDescription = "进入暗房编辑",
-                        tint = BrassGold,
-                    )
-                }
+            // 变焦：单行胶囊，恒常可见（拍摄核心操作）
+            if (hasCameraPerm) {
+                ZoomPillRow(zoomRatio = zoomRatio, onZoom = { setZoom(it) })
+                Spacer(Modifier.height(10.dp))
             }
 
-            // 中：快门
-            Box(
-                modifier = Modifier
-                    .size(84.dp)
-                    .scale(shutterScale)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            isRecordingVideo -> GlowOrange.copy(alpha = 0.45f)
-                            captureMode == CameraCaptureMode.VIDEO -> ShutterOrange.copy(alpha = 0.25f)
-                            else -> GlowBrass.copy(alpha = 0.30f)
-                        },
-                        CircleShape,
-                    )
-                    .border(3.dp, BrassGold, CircleShape)
-                    .clickable { triggerCapture() }
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(if (isRecordingVideo) RoundedCornerShape(14.dp) else CircleShape)
-                        .background(
-                            when {
-                                isRecordingVideo -> AlertCrimson
-                                captureMode == CameraCaptureMode.VIDEO -> ShutterOrange
-                                else -> Color(0xFFF3F5F8)
-                            },
-                        ),
-                )
-            }
-
-            // 右：滤镜 / 亮度 / 切镜头
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IconButton(
-                    onClick = { showFilterTray = !showFilterTray },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(if (showFilterTray) BrassGold.copy(alpha = 0.22f) else ControlPillBg, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Tune,
-                        contentDescription = "滤镜面板开关",
-                        tint = if (showFilterTray) BrassGold else TextSecondary,
-                    )
-                }
-                IconButton(
-                    onClick = { showBrightnessPanel = !showBrightnessPanel },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(if (showBrightnessPanel) BrassGold.copy(alpha = 0.22f) else ControlPillBg, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Exposure,
-                        contentDescription = "取景亮度",
-                        tint = if (showBrightnessPanel) BrassGold else TextSecondary,
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        val lenses = container.hardwareProfile.lenses
-                        val nextId = if (lenses.size >= 2) {
-                            val curIdx = lenses.indexOfFirst { it.cameraId == activeCameraId }
-                            lenses[(curIdx + 1) % lenses.size].cameraId
-                        } else {
-                            if (activeCameraId == "0") "1" else "0"
-                        }
-                        activeCameraId = nextId
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(ControlPillBg, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Cameraswitch,
-                        contentDescription = "切换摄像头",
-                        tint = TextPrimary,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 顶部仪表条：把曝光、亮度方案、闪光、构图、定时、连拍压缩进一行可横向滑动的胶囊，
- * 并让「曝光」始终显示真实生效的 EV（受设备步长限幅）。
- */
-@Composable
-private fun CameraTopDeck(
-    effectiveEv: Float,
-    brightnessLabel: String,
-    flashLabel: String,
-    flashActive: Boolean,
-    guideLabel: String,
-    guideActive: Boolean,
-    timerSeconds: Int,
-    burstLabel: String,
-    burstActive: Boolean,
-    brightnessActive: Boolean,
-    onExposureClick: () -> Unit,
-    onBrightnessClick: () -> Unit,
-    onFlashClick: () -> Unit,
-    onGuideClick: () -> Unit,
-    onTimerClick: () -> Unit,
-    onBurstClick: () -> Unit,
-) {
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(InstrumentDeck, RoundedCornerShape(14.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        item {
-            TopHudChip(
-                label = "曝光 %+.1f".format(effectiveEv),
-                active = kotlin.math.abs(effectiveEv) > 0.05f,
-                onClick = onExposureClick,
-            )
-        }
-        item {
-            TopHudChip(
-                label = brightnessLabel,
-                active = brightnessActive,
-                onClick = onBrightnessClick,
-            )
-        }
-        item {
-            TopHudChip(
-                label = "闪光 $flashLabel",
-                active = flashActive,
-                onClick = onFlashClick,
-            )
-        }
-        item {
-            TopHudChip(
-                label = guideLabel,
-                active = guideActive,
-                onClick = onGuideClick,
-            )
-        }
-        item {
-            TopHudChip(
-                label = if (timerSeconds == 0) "定时 关" else "${timerSeconds}s",
-                active = timerSeconds > 0,
-                onClick = onTimerClick,
-            )
-        }
-        item {
-            TopHudChip(
-                label = burstLabel,
-                active = burstActive,
-                onClick = onBurstClick,
-            )
-        }
-    }
-}
-
-/** 亮度方案面板：方案档位 + 手动增益 + 实时亮度读数 + 一键修复。 */
-@Composable
-private fun BrightnessControlPanel(
-    mode: ViewfinderBrightnessMode,
-    onSelectMode: (ViewfinderBrightnessMode) -> Unit,
-    manualBoost: Float,
-    onManualBoost: (Float) -> Unit,
-    autoLiftEnabled: Boolean,
-    onToggleAutoLift: (Boolean) -> Unit,
-    frameLuma: FrameLuma?,
-    onRescue: () -> Unit,
-) {
-    OphotoCard(
-        modifier = Modifier.padding(top = 6.dp),
-        borderDp = 1.dp,
-    ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            // 主控行：暗房入口 · 快门 · 镜头/滤镜
             Row(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "取景亮度 · 只影响观感，成片仍按你的曝光",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BrassGold,
-                )
-                Text(
-                    text = frameLuma?.let { "实测 ${it.meanPercent}%" } ?: "测量中…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = when {
-                        frameLuma == null -> TextMuted
-                        frameLuma.isBlack -> AlertCrimson
-                        frameLuma.isDim -> ShutterOrange
-                        else -> OpticalEmerald
-                    },
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(ViewfinderBrightnessMode.entries) { m ->
-                    TopHudChip(label = m.label, active = m == mode, onClick = { onSelectMode(m) })
+                // 左：暗房（最近一张）
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .pressScale()
+                        .clickable { onJumpToEditor() }
+                        .padding(3.dp),
+                ) {
+                    val thumb = lastCapturedThumb
+                    if (thumb != null) {
+                        Image(
+                            bitmap = thumb.asImageBitmap(),
+                            contentDescription = "进入暗房",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(0.7.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp)),
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0x33FFFFFF))
+                                .border(0.7.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.PhotoLibrary, "进入暗房", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                // 中：快门（唯一实心白，视觉焦点）
+                Box(
+                    modifier = Modifier
+                        .size(78.dp)
+                        .scale(shutterScale)
+                        .clip(CircleShape)
+                        .border(3.dp, Color.White.copy(alpha = 0.9f), CircleShape)
+                        .padding(6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(if (isRecordingVideo) RoundedCornerShape(12.dp) else CircleShape)
+                            .background(if (isRecordingVideo) AlertCrimson else Color.White)
+                            .clickable { triggerCapture() },
+                    )
+                }
+
+                // 右：镜头切换
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x33FFFFFF))
+                        .border(0.7.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+                        .pressScale()
+                        .clickable {
+                            val lenses = container.hardwareProfile.lenses
+                            activeCameraId = if (lenses.size >= 2) {
+                                val curIdx = lenses.indexOfFirst { it.cameraId == activeCameraId }
+                                lenses[(curIdx + 1) % lenses.size].cameraId
+                            } else {
+                                if (activeCameraId == "0") "1" else "0"
+                            }
+                            wake()
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Cameraswitch, "切换镜头", tint = Color.White, modifier = Modifier.size(21.dp))
                 }
             }
-            Text(
-                text = mode.hint,
-                style = MaterialTheme.typography.labelSmall,
-                color = TextMuted,
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TopHudChip(
-                    label = if (autoLiftEnabled) "自适应提亮 开" else "自适应提亮 关",
-                    active = autoLiftEnabled,
-                    onClick = { onToggleAutoLift(!autoLiftEnabled) },
-                )
-                TopHudChip(
-                    label = if (manualBoost <= 0.001f) "手动增益 0%" else "手动增益 +${(manualBoost * 100).roundToInt()}%",
-                    active = manualBoost > 0.001f,
-                    onClick = { onManualBoost(0f) },
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "增益强度",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    modifier = Modifier.width(110.dp),
-                )
-                Slider(
-                    value = manualBoost,
-                    onValueChange = onManualBoost,
-                    valueRange = 0f..0.35f,
-                    colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+
+            Spacer(Modifier.height(12.dp))
+
+            // 次要工具行：滤镜 / 亮度 / 定时 / 网格 —— 半透明胶囊，FULL 时出现
+            androidx.compose.animation.AnimatedVisibility(
+                visible = chromeDensity != ChromeDensity.HIDDEN,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
             ) {
-                OutlinedButton(
-                    onClick = onRescue,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(vertical = 6.dp),
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.Refresh, null, tint = BrassGold, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("一键修复黑屏", color = BrassGold, style = MaterialTheme.typography.labelSmall)
+                    ToolPill(
+                        icon = Icons.Rounded.Tune,
+                        label = activePreset?.name ?: "滤镜",
+                        active = activePreset != null,
+                        onClick = { sheet = CameraSheet.FILTERS; wake() },
+                    )
+                    ToolPill(
+                        icon = Icons.Rounded.Exposure,
+                        label = "亮度",
+                        active = brightnessMode != ViewfinderBrightnessMode.NATURAL,
+                        onClick = { sheet = CameraSheet.BRIGHTNESS; wake() },
+                    )
+                    ToolPill(
+                        icon = Icons.Rounded.Timer,
+                        label = if (timerSeconds == 0) "定时" else "${timerSeconds}s",
+                        active = timerSeconds > 0,
+                        onClick = {
+                            timerSeconds = when (timerSeconds) {
+                                0 -> 3
+                                3 -> 10
+                                else -> 0
+                            }
+                            wake()
+                        },
+                    )
+                    ToolPill(
+                        icon = Icons.Rounded.GridOn,
+                        label = settings.compositionGuide.label,
+                        active = settings.compositionGuide != CompositionGuideType.NONE,
+                        onClick = {
+                            val all = CompositionGuideType.entries
+                            val next = all[(all.indexOf(settings.compositionGuide) + 1) % all.size]
+                            scope.launch { container.preferences.update { it.copy(compositionGuide = next) } }
+                            wake()
+                        },
+                    )
+                    ToolPill(
+                        icon = Icons.Rounded.MoreHoriz,
+                        label = if (bracketMode) "包围" else if (burstCount > 1) "连拍" else "更多",
+                        active = bracketMode || burstCount > 1,
+                        onClick = { sheet = CameraSheet.MORE; wake() },
+                    )
                 }
             }
         }
+
+        // ── 底部抽屉（Depth：从底部延伸出来的材质面板） ─────────────────────────
+        CameraSheetHost(
+            sheet = sheet,
+            onDismiss = { sheet = null },
+            content = { current ->
+                when (current) {
+                    CameraSheet.FILTERS -> FiltersSheetContent(
+                        presets = presets,
+                        selectedPresetId = selectedPresetId,
+                        strength = filterStrength,
+                        onSelect = { selectedPresetId = it },
+                        onStrength = { filterStrength = it },
+                    )
+                    CameraSheet.BRIGHTNESS -> BrightnessSheetContent(
+                        brightnessMode = brightnessMode,
+                        onBrightnessMode = {
+                            brightnessMode = it
+                            scope.launch { container.preferences.update { s -> s.copy(viewfinderBrightness = it) } }
+                        },
+                        manualBoost = manualBoost,
+                        onManualBoost = {
+                            manualBoost = it
+                            manualBoostTouched = it > 0.001f
+                        },
+                        autoLift = autoLiftEnabled,
+                        onToggleAutoLift = { autoLiftEnabled = it },
+                        frameLuma = frameLuma,
+                        onRescue = { rescueExposure() },
+                    )
+                    CameraSheet.MORE -> MoreSheetContent(
+                        captureMode = captureMode,
+                        onCaptureMode = { captureMode = it },
+                        bracketMode = bracketMode,
+                        onBracket = { bracketMode = !bracketMode },
+                        burstCount = burstCount,
+                        onBurst = { burstCount = if (it) 5 else 1 },
+                        onProDial = { sheet = CameraSheet.PRO },
+                        exposure = userExposure,
+                        focus = focusConfig,
+                        wb = wbConfig,
+                        onExposure = {
+                            userExposure = it
+                            container.cameraEngine.setExposure(it)
+                        },
+                        onFocus = {
+                            focusConfig = it
+                            container.cameraEngine.setFocus(it)
+                        },
+                        onWb = {
+                            wbConfig = it
+                            container.cameraEngine.setWhiteBalance(it)
+                        },
+                    )
+                    CameraSheet.PRO -> ProSheetContent(
+                        exposure = userExposure,
+                        focus = focusConfig,
+                        wb = wbConfig,
+                        onExposure = {
+                            userExposure = it
+                            container.cameraEngine.setExposure(it)
+                        },
+                        onFocus = {
+                            focusConfig = it
+                            container.cameraEngine.setFocus(it)
+                        },
+                        onWb = {
+                            wbConfig = it
+                            container.cameraEngine.setWhiteBalance(it)
+                        },
+                    )
+                    null -> Unit
+                }
+            },
+        )
     }
 }
 
-/** 变焦档位药丸：0.6x / 1.0x / 2.0x / 3.0x / 5.0x，选中实心金底。 */
+private enum class CameraSheet { FILTERS, BRIGHTNESS, MORE, PRO }
+
+/* ── 小组件 ─────────────────────────────────────────────────────────────── */
+
 @Composable
-private fun ZoomPillRow(
-    zoomRatio: Float,
-    onZoom: (Float) -> Unit,
+private fun HudCapsule(
+    onClick: () -> Unit,
+    highlighted: Boolean = false,
+    content: @Composable () -> Unit,
 ) {
+    Box(
+        modifier = Modifier
+            .clip(OphotoShape.Chip)
+            .background(if (highlighted) BrassGold else Color(0x66000000))
+            .pressScale()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+@Composable
+private fun ToolPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .pressScale()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (active) BrassGold else Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (active) BrassGold else Color.White.copy(alpha = 0.7f),
+            maxLines = 1,
+        )
+    }
+}
+
+/** 顶部读数：把「有没有画面 / 分辨率 / 亮度 / 焦段」压成一行，替代原来的多枚 HUD 芯片。 */
+private fun buildHealthLine(
+    streaming: Boolean,
+    resolution: String,
+    frameLuma: FrameLuma?,
+    zoomLabel: String,
+): String {
+    if (!streaming) return "正在连接相机…"
+    val parts = mutableListOf<String>()
+    parts += zoomLabel
+    frameLuma?.let { parts += "亮度 ${it.meanPercent}%" }
+    if (resolution.isNotBlank()) parts += resolution.substringBefore(" · ")
+    return parts.joinToString("  ·  ")
+}
+
+@Composable
+private fun LumaMeterRow(luma: FrameLuma, effectiveEv: Float) {
     Row(
         modifier = Modifier
-            .clip(CircleShape)
-            .background(Color(0xC40B0D12), CircleShape)
-            .border(0.6.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .clip(OphotoShape.Chip)
+            .background(Color(0x66000000))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Canvas(modifier = Modifier.width(42.dp).height(4.dp)) {
+            drawRoundRect(
+                color = Color(0x33FFFFFF),
+                size = size,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+            )
+            drawRoundRect(
+                color = when {
+                    luma.isBlack -> AlertCrimson
+                    luma.isDim -> ShutterOrange
+                    else -> OpticalEmerald
+                },
+                size = androidx.compose.ui.geometry.Size(size.width * luma.mean.coerceIn(0.02f, 1f), size.height),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+            )
+        }
+        Text(
+            text = "${luma.meanPercent}%  ${"%+.1f".format(effectiveEv)}EV",
+            style = com.ophoto.ui.theme.ReadingStyle,
+            color = Color.White.copy(alpha = 0.85f),
+        )
+    }
+}
+
+@Composable
+private fun ZoomPillRow(zoomRatio: Float, onZoom: (Float) -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(OphotoShape.Chip)
+            .background(Color(0x4D000000))
             .padding(horizontal = 4.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1263,335 +1223,477 @@ private fun ZoomPillRow(
             Text(
                 text = formatZoomLabel(z),
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                color = if (active) ObsidianBg else Color.White.copy(alpha = 0.86f),
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (active) TextOnAccent else Color.White.copy(alpha = 0.8f),
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(if (active) BrassGold else Color.Transparent)
                     .clickable { onZoom(z) }
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
-    }
-}
-
-/** 取景测光条：实测亮度、生效 EV、焦段一行显示，紧凑到不会和直方图抢位置。 */
-@Composable
-private fun LumaMeterBar(
-    luma: FrameLuma,
-    effectiveEv: Float,
-    zoomLabel: String,
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xB00B0D12), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Canvas(modifier = Modifier.width(46.dp).height(6.dp)) {
-            drawRoundRect(
-                color = Color(0xFF2B3242),
-                size = size,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
-            )
-            drawRoundRect(
-                color = when {
-                    luma.isBlack -> AlertCrimson
-                    luma.isDim -> ShutterOrange
-                    else -> OpticalEmerald
-                },
-                size = androidx.compose.ui.geometry.Size(
-                    width = size.width * luma.mean.coerceIn(0.02f, 1f),
-                    height = size.height,
-                ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
-            )
-        }
-        Text(
-            text = luma.meanPercent.toString().padStart(3) + "%",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextPrimary,
-        )
-        Text(
-            text = "$zoomLabel · ${"%+.1f".format(effectiveEv)}EV",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
-        )
     }
 }
 
 @Composable
 private fun CameraPermissionGate(onRequest: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(listOf(Color(0xFF1B2432), Color(0xFF0B0F16))),
-            ),
+        modifier = Modifier.fillMaxSize().background(ObsidianBg),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(96.dp)
+                .size(64.dp)
                 .clip(CircleShape)
-                .background(ControlPillBg, CircleShape)
-                .border(1.2.dp, BrassGold.copy(alpha = 0.55f), CircleShape),
+                .background(ControlPillBg),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = "等待相机授权",
-                tint = BrassGold,
-                modifier = Modifier.size(34.dp),
-            )
+            Icon(Icons.Rounded.PhotoCamera, null, tint = TextMuted, modifier = Modifier.size(26.dp))
         }
-        Spacer(Modifier.height(14.dp))
-        Text("需要相机权限", style = MaterialTheme.typography.titleMedium, color = BrassGold)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("需要相机权限", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+        Spacer(Modifier.height(6.dp))
         Text(
-            "授权后才会显示实时取景画面",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
+            "授权后才会显示实时取景",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
         )
-        Spacer(Modifier.height(14.dp))
-        FilledTonalButton(onClick = onRequest) { Text("授权相机") }
+        Spacer(Modifier.height(20.dp))
+        OphotoBrassButton(onClick = onRequest, text = "允许访问相机")
+    }
+}
+
+/**
+ * 底部抽屉宿主 · Depth
+ *
+ * 面板从底部「延伸」而出（带圆顶与抬起阴影），背景只做轻微压暗而不黑屏，
+ * 让你在调参数时仍然看到画面变化。关闭 = 向下拖 / 点空白 / 点收起条。
+ */
+@Composable
+private fun CameraSheetHost(
+    sheet: CameraSheet?,
+    onDismiss: () -> Unit,
+    content: @Composable (CameraSheet?) -> Unit,
+) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = sheet != null,
+        enter = fadeIn(tween(160)),
+        exit = fadeOut(tween(140)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x66000000))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = sheet != null,
+                enter = slideInVertically(
+                    animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
+                ) { it } + fadeIn(tween(120)),
+                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(OphotoShape.Sheet)
+                        .background(MaterialThick)
+                        .border(0.7.dp, MaterialHairline, OphotoShape.Sheet)
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                        )
+                        .navigationBarsPadding()
+                        .padding(bottom = 8.dp),
+                ) {
+                    // 拖拽指示条（物理隐喻：可以推下去）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(34.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x33FFFFFF)),
+                        )
+                    }
+                    content(sheet)
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ProParameterPanel(
-    activeTab: ProDialTab,
-    onSelectTab: (ProDialTab) -> Unit,
-    exposure: ExposureConfig,
-    focus: FocusConfig,
-    wb: WhiteBalanceConfig,
-    onUpdateExposure: (ExposureConfig) -> Unit,
-    onUpdateFocus: (FocusConfig) -> Unit,
-    onUpdateWb: (WhiteBalanceConfig) -> Unit,
+private fun FiltersSheetContent(
+    presets: List<FilterPreset>,
+    selectedPresetId: String?,
+    strength: Float,
+    onSelect: (String?) -> Unit,
+    onStrength: (Float) -> Unit,
 ) {
-    OphotoCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 5.dp)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        borderDp = 1.dp,
-    ) {
+    val context = LocalContext.current
+    val thumbs = remember(presets.size) {
+        runCatching { DemoPhotos.loadForPreview(context, 220) }.getOrNull()
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ProDialTab.entries) { tab ->
-                    val selected = tab == activeTab
-                    OphotoChip(
-                        label = tab.label,
-                        selected = selected,
-                        accent = BrassGold,
-                        onClick = { onSelectTab(tab) },
+            Text("色彩", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "点选即生效 · 快门直接出片",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextMuted,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "原片",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (selectedPresetId == null) BrassGold else TextMuted,
+                modifier = Modifier
+                    .clip(OphotoShape.Chip)
+                    .clickable { onSelect(null) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(presets.size) { idx ->
+                val preset = presets[idx]
+                val selected = preset.id == selectedPresetId
+                Column(
+                    modifier = Modifier
+                        .width(84.dp)
+                        .pressScale()
+                        .clickable { onSelect(preset.id) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(84.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF17181C))
+                            .border(
+                                width = if (selected) 2.dp else 0.7.dp,
+                                color = if (selected) BrassGold else Color(0x1FFFFFFF),
+                                shape = RoundedCornerShape(14.dp),
+                            ),
+                    ) {
+                        if (thumbs != null) {
+                            Image(
+                                bitmap = thumbs.asImageBitmap(),
+                                contentDescription = preset.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        // 用预设自身的色彩倾向做一层色彩提示，让每格看起来是「不同底片」
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            preset.accentColor.copy(alpha = 0.28f),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                ),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        preset.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) BrassGold else TextSecondary,
+                        maxLines = 1,
                     )
                 }
-            }
-
-            // AE-L Lock Toggle
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (exposure.aeLocked) ShutterOrange.copy(alpha = 0.25f) else ControlPillBg)
-                    .clickable {
-                        onUpdateExposure(exposure.copy(aeLocked = !exposure.aeLocked))
-                    }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Icon(
-                    imageVector = if (exposure.aeLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                    contentDescription = "曝光锁定",
-                    tint = if (exposure.aeLocked) ShutterOrange else TextSecondary,
-                    modifier = Modifier.size(13.dp),
-                )
-                Spacer(Modifier.width(3.dp))
-                Text(
-                    text = "AE-L",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (exposure.aeLocked) ShutterOrange else TextSecondary,
-                )
             }
         }
-
-        Spacer(Modifier.height(6.dp))
-
-        when (activeTab) {
-            ProDialTab.EV -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "%+.1f EV".format(exposure.evCompensation),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = BrassGold,
-                        modifier = Modifier.width(68.dp),
-                    )
-                    Slider(
-                        value = exposure.evCompensation,
-                        onValueChange = { onUpdateExposure(exposure.copy(manualMode = false, evCompensation = it)) },
-                        valueRange = -2.0f..2.0f,
-                        colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            ProDialTab.ISO -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        TopHudChip(
-                            label = "AUTO",
-                            active = !exposure.manualMode,
-                            onClick = { onUpdateExposure(exposure.copy(manualMode = false)) },
-                        )
-                    }
-                    items(ISO_STOPS) { isoVal ->
-                        TopHudChip(
-                            label = isoVal.toString(),
-                            active = exposure.manualMode && exposure.iso == isoVal,
-                            onClick = { onUpdateExposure(exposure.copy(manualMode = true, iso = isoVal)) },
-                        )
-                    }
-                }
-            }
-
-            ProDialTab.SHUTTER -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(SHUTTER_STOPS) { sec ->
-                        val text = MetadataEngine.formatShutterSpeed(sec)
-                        TopHudChip(
-                            label = text,
-                            active = exposure.manualMode && kotlin.math.abs(exposure.shutterSeconds - sec) < 1e-5,
-                            onClick = { onUpdateExposure(exposure.copy(manualMode = true, shutterSeconds = sec)) },
-                        )
-                    }
-                }
-            }
-
-            ProDialTab.WB -> {
-                Column {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(WhiteBalanceMode.entries) { mode ->
-                            TopHudChip(
-                                label = mode.label,
-                                active = wb.mode == mode,
-                                onClick = {
-                                    onUpdateWb(
-                                        wb.copy(
-                                            mode = mode,
-                                            manualKelvin = mode.approximateKelvin,
-                                        ),
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    if (wb.mode == WhiteBalanceMode.MANUAL) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${wb.manualKelvin}K",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = BrassGold,
-                                modifier = Modifier.width(62.dp),
-                            )
-                            Slider(
-                                value = wb.manualKelvin.toFloat(),
-                                onValueChange = { onUpdateWb(wb.copy(manualKelvin = it.roundToInt())) },
-                                valueRange = 2500f..10000f,
-                                colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-
-            ProDialTab.FOCUS -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TopHudChip(
-                        label = if (focus.manualFocus) "MF 手动" else "AF 自动",
-                        active = focus.manualFocus,
-                        onClick = { onUpdateFocus(focus.copy(manualFocus = !focus.manualFocus)) },
-                    )
-                    Slider(
-                        value = focus.focusDistanceDiopters,
-                        onValueChange = { onUpdateFocus(focus.copy(manualFocus = true, focusDistanceDiopters = it)) },
-                        valueRange = 0f..10f,
-                        colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = if (focus.focusDistanceDiopters < 0.2f) "∞ 无穷远" else "%.1fdpt".format(focus.focusDistanceDiopters),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = BrassGold,
-                    )
-                }
-            }
-
-            ProDialTab.METERING -> {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(MeteringMode.entries) { m ->
-                        TopHudChip(
-                            label = m.label,
-                            active = exposure.meteringMode == m,
-                            onClick = { onUpdateExposure(exposure.copy(meteringMode = m)) },
-                        )
-                    }
-                }
+        if (selectedPresetId != null) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("浓度", style = MaterialTheme.typography.labelMedium, color = TextMuted)
+                Slider(
+                    value = strength,
+                    onValueChange = onStrength,
+                    valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = BrassGold,
+                        activeTrackColor = BrassGold,
+                        inactiveTrackColor = Color(0x33FFFFFF),
+                    ),
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Text(
+                    "${(strength * 100).roundToInt()}%",
+                    style = com.ophoto.ui.theme.ReadingStyle,
+                    color = TextSecondary,
+                )
             }
         }
     }
 }
 
+@Composable
+private fun BrightnessSheetContent(
+    brightnessMode: ViewfinderBrightnessMode,
+    onBrightnessMode: (ViewfinderBrightnessMode) -> Unit,
+    manualBoost: Float,
+    onManualBoost: (Float) -> Unit,
+    autoLift: Boolean,
+    onToggleAutoLift: (Boolean) -> Unit,
+    frameLuma: FrameLuma?,
+    onRescue: () -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("取景亮度", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+            Spacer(Modifier.weight(1f))
+            frameLuma?.let {
+                Text(
+                    "实测 ${it.meanPercent}%",
+                    style = com.ophoto.ui.theme.ReadingStyle,
+                    color = if (it.isBlack) AlertCrimson else TextMuted,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ViewfinderBrightnessMode.entries.forEach { mode ->
+                OphotoChip(
+                    label = mode.label,
+                    selected = mode == brightnessMode,
+                    onClick = { onBrightnessMode(mode) },
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("额外提亮", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            Slider(
+                value = manualBoost,
+                onValueChange = onManualBoost,
+                valueRange = 0f..0.35f,
+                colors = SliderDefaults.colors(
+                    thumbColor = BrassGold,
+                    activeTrackColor = BrassGold,
+                    inactiveTrackColor = Color(0x33FFFFFF),
+                ),
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+            )
+            Text(
+                "${(manualBoost * 100).roundToInt()}%",
+                style = com.ophoto.ui.theme.ReadingStyle,
+                color = TextSecondary,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("自动提亮", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                Text(
+                    "只提亮屏幕观感，不影响成片曝光",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                )
+            }
+            Switch(
+                checked = autoLift,
+                onCheckedChange = onToggleAutoLift,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = TextOnAccent,
+                    checkedTrackColor = BrassGold,
+                ),
+            )
+        }
+        if (frameLuma?.isBlack == true || frameLuma?.isDim == true) {
+            Spacer(Modifier.height(6.dp))
+            OphotoOutlinedButton(onClick = onRescue, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Exposure, null, tint = BrassGold, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("一键修复自动曝光", style = MaterialTheme.typography.labelLarge, color = TextPrimary)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun MoreSheetContent(
+    captureMode: CameraCaptureMode,
+    onCaptureMode: (CameraCaptureMode) -> Unit,
+    bracketMode: Boolean,
+    onBracket: () -> Unit,
+    burstCount: Int,
+    onBurst: (Boolean) -> Unit,
+    onProDial: () -> Unit,
+    exposure: ExposureConfig,
+    focus: FocusConfig,
+    wb: WhiteBalanceConfig,
+    onExposure: (ExposureConfig) -> Unit,
+    onFocus: (FocusConfig) -> Unit,
+    onWb: (WhiteBalanceConfig) -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("更多", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "专业调节",
+                style = MaterialTheme.typography.labelMedium,
+                color = BrassGold,
+                modifier = Modifier
+                    .clip(OphotoShape.Chip)
+                    .background(BrassGoldSoft)
+                    .clickable(onClick = onProDial)
+                    .padding(horizontal = 11.dp, vertical = 5.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphotoChip(
+                label = if (bracketMode) "包围曝光 开" else "包围曝光",
+                selected = bracketMode,
+                onClick = onBracket,
+            )
+            OphotoChip(
+                label = if (burstCount > 1) "连拍 ${burstCount}张" else "连拍",
+                selected = burstCount > 1,
+                onClick = { onBurst(burstCount == 1) },
+            )
+            OphotoChip(label = captureMode.label, selected = true, onClick = {})
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "包围曝光会连续拍 3 张（-1 / 0 / +1 EV），便于后期合成；长按画面可隐藏全部控件。",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextMuted,
+            modifier = Modifier.padding(vertical = 6.dp),
+        )
+        // 直方图与网格在专业面板里集中
+        Spacer(Modifier.height(2.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OphotoChip(label = "锁定曝光", selected = exposure.aeLocked, onClick = {
+                onExposure(exposure.copy(aeLocked = !exposure.aeLocked))
+            })
+            OphotoChip(label = "手动对焦", selected = focus.manualFocus, onClick = {
+                onFocus(focus.copy(manualFocus = !focus.manualFocus))
+            })
+            OphotoChip(label = "手动白平衡", selected = wb.mode == WhiteBalanceMode.MANUAL, onClick = {
+                onWb(wb.copy(mode = if (wb.mode == WhiteBalanceMode.MANUAL) WhiteBalanceMode.AUTO else WhiteBalanceMode.MANUAL))
+            })
+        }
+        Spacer(Modifier.height(10.dp))
+    }
+}
+
+@Composable
+private fun ProSheetContent(
+    exposure: ExposureConfig,
+    focus: FocusConfig,
+    wb: WhiteBalanceConfig,
+    onExposure: (ExposureConfig) -> Unit,
+    onFocus: (FocusConfig) -> Unit,
+    onWb: (WhiteBalanceConfig) -> Unit,
+) {
+    var tab by remember { mutableStateOf(ProDialTab.EV) }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ProDialTab.entries.forEach { t ->
+                OphotoChip(label = t.label, selected = tab == t, onClick = { tab = t })
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        when (tab) {
+            ProDialTab.EV -> ProSliderRow(
+                label = "曝光补偿",
+                value = exposure.evCompensation,
+                range = -2f..2f,
+                display = "%+.1f EV".format(exposure.evCompensation),
+                onChange = { onExposure(exposure.copy(evCompensation = it, manualMode = false)) },
+            )
+            ProDialTab.ISO -> ProSliderRow(
+                label = "感光度",
+                value = exposure.iso.toFloat(),
+                range = 50f..3200f,
+                display = "ISO ${exposure.iso}",
+                onChange = { onExposure(exposure.copy(iso = it.roundToInt(), manualMode = true)) },
+            )
+            ProDialTab.SHUTTER -> ProSliderRow(
+                label = "快门速度",
+                value = exposure.shutterSeconds,
+                range = 1f / 4000f..0.5f,
+                display = MetadataEngine.formatShutterSpeed(exposure.shutterSeconds),
+                onChange = { onExposure(exposure.copy(shutterSeconds = it, manualMode = true)) },
+            )
+            ProDialTab.WB -> ProSliderRow(
+                label = "色温",
+                value = wb.manualKelvin.toFloat(),
+                range = 2000f..8000f,
+                display = "${wb.manualKelvin}K",
+                onChange = { onWb(wb.copy(mode = WhiteBalanceMode.MANUAL, manualKelvin = it.roundToInt())) },
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+    }
+}
+
+@Composable
+private fun ProSliderRow(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    display: String,
+    onChange: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.width(84.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            Text(display, style = com.ophoto.ui.theme.ReadingLargeStyle, color = BrassGold)
+        }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = BrassGold,
+                activeTrackColor = BrassGold,
+                inactiveTrackColor = Color(0x33FFFFFF),
+            ),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * 兼容组件：其它页面仍在使用的旧「HUD 芯片」。
+ * 现统一渲染为药丸芯片（选中金底），保证全应用只有一种控制态语言。
+ */
 @Composable
 fun TopHudChip(
     label: String,
     active: Boolean,
     onClick: () -> Unit,
 ) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (active) ObsidianBg else TextPrimary,
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (active) BrassGold else ControlPillBg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-    )
-}
-
-@Composable
-private fun FilterQuickChip(
-    name: String,
-    selected: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    FilledTonalButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = if (selected) accent.copy(alpha = 0.28f) else ControlPillBg,
-            contentColor = if (selected) accent else TextPrimary,
-        ),
-        modifier = Modifier.height(30.dp),
-    ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
-    }
+    OphotoChip(label = label, selected = active, onClick = onClick)
 }

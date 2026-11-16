@@ -77,7 +77,8 @@ import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OpticalEmerald
-import com.ophoto.ui.theme.PremiumHeroHeader
+import com.ophoto.ui.theme.OphotoChip
+import com.ophoto.ui.theme.OphotoPageHeader
 import com.ophoto.ui.theme.ShutterOrange
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
@@ -88,6 +89,14 @@ import java.time.ZoneOffset
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import com.ophoto.data.repository.DemoPhoto
+import com.ophoto.data.repository.DemoPhotos
+import com.ophoto.ui.theme.TextMuted
 
 private enum class AssistantSubSection(val label: String) {
     SHOT_CARDS("灵感镜头卡"),
@@ -111,18 +120,13 @@ fun AssistantScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color(0xFF0B0E14), ObsidianBg)))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(ObsidianBg)
+            .padding(horizontal = 16.dp),
     ) {
-        PremiumHeroHeader(
-            eyebrow = "FIELD HUD  ·  OFFLINE",
+        OphotoPageHeader(
             title = "现场助手",
-            subtitle = "镜头灵感 · 布光雷达 · 天文黄金时刻 · 景深 ND · 清单话术",
-            icon = androidx.compose.material.icons.Icons.Rounded.Explore,
-            stats = listOf("灵感卡" to "${com.ophoto.data.repository.FieldAssistantCatalog.SHOT_CARDS.size}", "灯位" to "${com.ophoto.data.repository.FieldAssistantCatalog.LIGHTING_GUIDES.size}", "城市" to "8 城")
+            subtitle = "${com.ophoto.data.repository.FieldAssistantCatalog.SHOT_CARDS.size} 张灵感卡 · ${com.ophoto.data.repository.FieldAssistantCatalog.LIGHTING_GUIDES.size} 种布光 · 离线可用",
         )
-
-        Spacer(Modifier.height(8.dp))
 
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(AssistantSubSection.entries) { sec ->
@@ -190,17 +194,17 @@ private fun ShotCardsWorkspace(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(SceneCategory.entries) { cat ->
-                TopHudChip(
+                OphotoChip(
                     label = cat.label,
-                    active = selectedScene == cat,
+                    selected = selectedScene == cat,
                     onClick = { onSelectScene(cat) },
                 )
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
         if (isExpandedDualPane) {
             // Foldable unfolded dual-pane master-detail view!
@@ -335,50 +339,17 @@ private fun ShotCardDetailPanel(
             )
         }
 
-        // Parametric Composition Viewfinder Blueprint Canvas
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(148.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0A0F18))
-                .border(1.dp, HairlineBorder, RoundedCornerShape(12.dp)),
-        ) {
-            CompositionOverlayCanvas(
-                guideType = card.compositionGuide,
-                showLeveler = false,
-                rollDegrees = 0f,
-                focusTapNormalized = null,
-            )
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val sx = card.subjectNormalizedX * size.width
-                val sy = card.subjectNormalizedY * size.height
-                // Light direction arrow
-                val rad = Math.toRadians(card.lightDirectionDeg.toDouble())
-                val lx = sx + (cos(rad) * 58.dp.toPx()).toFloat()
-                val ly = sy - (sin(rad) * 58.dp.toPx()).toFloat()
-                drawLine(
-                    color = ShutterOrange,
-                    start = Offset(lx, ly),
-                    end = Offset(sx, sy),
-                    strokeWidth = 2.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f)),
-                )
-                drawCircle(ShutterOrange, radius = 5.dp.toPx(), center = Offset(lx, ly))
-                // Subject visual anchor silhouette
-                drawCircle(OpticalEmerald.copy(alpha = 0.25f), radius = 20.dp.toPx(), center = Offset(sx, sy))
-                drawCircle(OpticalEmerald, radius = 7.dp.toPx(), center = Offset(sx, sy))
-            }
-            Text(
-                text = "● 绿点：主体锚点   ● 橙虚线：主逆光方向 (${card.cameraHeightHint})",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .background(Color(0xAD090A0D))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        }
+        // 实拍样片 + 构图/灯位叠加（照片优先，辅助线只做提示）
+        PhotoExamplePanel(
+            scene = photoSceneFor(card.category),
+            title = card.effectSummary,
+            compositionGuide = card.compositionGuide,
+            subjectX = card.subjectNormalizedX,
+            subjectY = card.subjectNormalizedY,
+            lightDirectionDeg = card.lightDirectionDeg,
+            footnote = "主体锚点 · 主光方向（${card.cameraHeightHint}）",
+            modifier = Modifier.fillMaxWidth().height(190.dp),
+        )
 
         Text(text = card.effectSummary, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
 
@@ -455,9 +426,9 @@ private fun LightingDiagramsWorkspace(
             if (isExpandedDualPane) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     FieldAssistantCatalog.LIGHTING_GUIDES.forEach { guide ->
-                        TopHudChip(
+                        OphotoChip(
                             label = guide.title,
-                            active = guide.id == selectedGuide.id,
+                            selected = guide.id == selectedGuide.id,
                             onClick = { onSelectGuide(guide) },
                         )
                     }
@@ -465,9 +436,9 @@ private fun LightingDiagramsWorkspace(
             } else {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(FieldAssistantCatalog.LIGHTING_GUIDES, key = { it.id }) { guide ->
-                        TopHudChip(
+                        OphotoChip(
                             label = guide.title,
-                            active = guide.id == selectedGuide.id,
+                            selected = guide.id == selectedGuide.id,
                             onClick = { onSelectGuide(guide) },
                         )
                     }
@@ -496,61 +467,68 @@ private fun LightingDiagramsWorkspace(
                     )
                 }
 
-                // 2D Top-Down Polar Studio Lighting Radar Canvas
+                // 实拍效果参考：看得见光比长什么样
+                PhotoExamplePanel(
+                    scene = photoSceneForGuide(selectedGuide),
+                    title = selectedGuide.title,
+                    compositionGuide = com.ophoto.data.local.CompositionGuideType.RULE_OF_THIRDS,
+                    subjectX = 0.5f,
+                    subjectY = 0.55f,
+                    lightDirectionDeg = selectedGuide.nodes.firstOrNull()?.angleDegFromCamera ?: 45.0,
+                    footnote = selectedGuide.lightRatio,
+                    modifier = Modifier.fillMaxWidth().height(170.dp),
+                )
+
+                // 俯视灯位图（细线 + 轻材质，辅助理解，不喧宾夺主）
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(195.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0A0D14)),
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF0B0C10)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val cx = size.width * 0.5f
-                        val cy = size.height * 0.5f
-                        val maxR = (minOf(size.width, size.height) * 0.42f)
+                        val cy = size.height * 0.48f
+                        val maxR = (minOf(size.width, size.height) * 0.40f)
 
-                        // Concentric optical distance rings
                         for (ring in 1..3) {
                             drawCircle(
-                                color = Color.White.copy(alpha = 0.08f),
+                                color = Color.White.copy(alpha = 0.055f),
                                 radius = maxR * ring / 3f,
                                 center = Offset(cx, cy),
                                 style = Stroke(1.dp.toPx()),
                             )
                         }
-                        // Camera optical axis (bottom 6 o'clock pointing up to subject)
-                        val camY = cy + maxR * 0.92f
+                        val camY = cy + maxR * 0.98f
                         drawLine(
-                            color = BrassGold.copy(alpha = 0.45f),
+                            color = BrassGold.copy(alpha = 0.35f),
                             start = Offset(cx, camY),
                             end = Offset(cx, cy),
-                            strokeWidth = 1.4.dp.toPx(),
+                            strokeWidth = 1.2.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
                         )
-                        drawCircle(BrassGold, radius = 6.dp.toPx(), center = Offset(cx, camY))
+                        drawCircle(BrassGold, radius = 4.5.dp.toPx(), center = Offset(cx, camY))
+                        drawCircle(Color.White.copy(alpha = 0.9f), radius = 7.dp.toPx(), center = Offset(cx, cy))
 
-                        // Subject head/shoulders at center
-                        drawCircle(Color.White, radius = 9.dp.toPx(), center = Offset(cx, cy))
-
-                        // Light nodes
                         selectedGuide.nodes.forEach { node ->
-                            val rad = Math.toRadians((90.0 - node.angleDegFromCamera))
                             val lx = cx + (sin(Math.toRadians(node.angleDegFromCamera.toDouble())) * maxR * node.radiusRatio).toFloat()
                             val ly = cy + (cos(Math.toRadians(node.angleDegFromCamera.toDouble())) * maxR * node.radiusRatio).toFloat()
                             val col = Color(node.role.colorHex)
-                            drawLine(col.copy(alpha = 0.55f), Offset(lx, ly), Offset(cx, cy), strokeWidth = 2.2.dp.toPx())
-                            drawCircle(col, radius = 7.dp.toPx(), center = Offset(lx, ly))
-                            val _unused = rad
+                            drawLine(col.copy(alpha = 0.45f), Offset(lx, ly), Offset(cx, cy), strokeWidth = 1.8.dp.toPx())
+                            drawCircle(col.copy(alpha = 0.18f), radius = 11.dp.toPx(), center = Offset(lx, ly))
+                            drawCircle(col, radius = 5.dp.toPx(), center = Offset(lx, ly))
                         }
                     }
                     Text(
-                        text = "俯视灯位图（底部金点 = 相机机位，中心白点 = 被摄主体）",
+                        text = "俯视灯位 · 金点机位 · 白点主体",
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = TextMuted,
                         modifier = Modifier.align(Alignment.BottomCenter).padding(6.dp),
                     )
                 }
+
 
                 selectedGuide.nodes.forEach { node ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -921,5 +899,124 @@ private fun TimeSlotBadge(label: String, timeText: String, color: Color) {
     ) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         Text(timeText, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   实拍参考：所有「灵感卡 / 布光」都用真实摄影底片做示范，
+   叠加层只保留必要的两条提示（构图线 + 主光方向），绝不遮挡画面。
+   ──────────────────────────────────────────────────────────────────────────── */
+
+private fun photoSceneFor(category: SceneCategory): DemoPhoto = when (category) {
+    SceneCategory.PORTRAIT, SceneCategory.GOURMET -> DemoPhoto.PORTRAIT
+    SceneCategory.NIGHT, SceneCategory.STREET, SceneCategory.ARCHITECTURE -> DemoPhoto.STREET
+    else -> DemoPhoto.LANDSCAPE
+}
+
+private fun photoSceneForGuide(guide: LightingSetupGuide): DemoPhoto = when {
+    guide.id.contains("window", true) || guide.id.contains("soft", true) -> DemoPhoto.PORTRAIT
+    guide.id.contains("night", true) || guide.id.contains("neon", true) -> DemoPhoto.STREET
+    else -> DemoPhoto.PORTRAIT
+}
+
+@Composable
+private fun PhotoExamplePanel(
+    scene: DemoPhoto,
+    title: String,
+    compositionGuide: com.ophoto.data.local.CompositionGuideType,
+    subjectX: Float,
+    subjectY: Float,
+    lightDirectionDeg: Double,
+    footnote: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val bitmap = remember(scene) {
+        runCatching { DemoPhotos.load(context, scene) }.getOrNull()
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF0B0C10)),
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // 构图辅助线：1px、低透明度
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val lineColor = Color.White.copy(alpha = 0.22f)
+            when (compositionGuide) {
+                com.ophoto.data.local.CompositionGuideType.RULE_OF_THIRDS,
+                com.ophoto.data.local.CompositionGuideType.GOLDEN_SPIRAL -> {
+                    val xs = if (compositionGuide == com.ophoto.data.local.CompositionGuideType.RULE_OF_THIRDS) {
+                        listOf(1f / 3f, 2f / 3f)
+                    } else {
+                        listOf(0.382f, 0.618f)
+                    }
+                    xs.forEach { f ->
+                        drawLine(lineColor, Offset(w * f, 0f), Offset(w * f, h), 0.8.dp.toPx())
+                        drawLine(lineColor, Offset(0f, h * f), Offset(w, h * f), 0.8.dp.toPx())
+                    }
+                }
+                com.ophoto.data.local.CompositionGuideType.CENTER_CROSS -> {
+                    drawLine(lineColor, Offset(w / 2f, 0f), Offset(w / 2f, h), 0.8.dp.toPx())
+                    drawLine(lineColor, Offset(0f, h / 2f), Offset(w, h / 2f), 0.8.dp.toPx())
+                }
+                else -> Unit
+            }
+
+            // 主体锚点 + 主光方向
+            val sx = (subjectX.coerceIn(0.08f, 0.92f)) * w
+            val sy = (subjectY.coerceIn(0.08f, 0.92f)) * h
+            val rad = Math.toRadians(lightDirectionDeg)
+            val lx = sx + (cos(rad) * w * 0.16f).toFloat()
+            val ly = sy - (sin(rad) * w * 0.16f).toFloat()
+
+            drawLine(
+                color = BrassGold.copy(alpha = 0.85f),
+                start = Offset(lx, ly),
+                end = Offset(sx, sy),
+                strokeWidth = 1.6.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 5f)),
+            )
+            drawCircle(BrassGold, radius = 3.5.dp.toPx(), center = Offset(lx, ly))
+            drawCircle(
+                color = Color.White.copy(alpha = 0.9f),
+                radius = 7.dp.toPx(),
+                center = Offset(sx, sy),
+                style = Stroke(1.4.dp.toPx()),
+            )
+        }
+
+        // 标题：只在底部压一条渐隐，不整块盖住照片
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD9000000))))
+                .padding(start = 11.dp, end = 11.dp, top = 22.dp, bottom = 8.dp),
+        ) {
+            Column {
+                Text(
+                    footnote,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = BrassGold,
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.9f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }

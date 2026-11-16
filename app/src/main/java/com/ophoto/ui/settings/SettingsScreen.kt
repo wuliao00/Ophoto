@@ -72,7 +72,7 @@ import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.ObsidianBg
 import com.ophoto.ui.theme.OpticalEmerald
 import com.ophoto.ui.theme.ShutterOrange
-import com.ophoto.ui.theme.PremiumHeroHeader
+import com.ophoto.ui.theme.OphotoPageHeader
 import com.ophoto.ui.theme.TextMuted
 import com.ophoto.ui.theme.TextPrimary
 import com.ophoto.ui.theme.TextSecondary
@@ -93,23 +93,31 @@ fun SettingsScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0B0E14), ObsidianBg)))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .background(ObsidianBg)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 28.dp),
     ) {
         item {
-            PremiumHeroHeader(
-                eyebrow = "SYSTEM STUDIO",
-                title = "系统工作室 · 设置",
-                subtitle = "本地零上传 · OPPO/OnePlus/realme 多摄与 ColorOS 深度适配",
-                icon = Icons.Rounded.Tune,
-                stats = listOf("设备" to hw.displayTitle.take(12), "刷新率" to "${hw.maxRefreshRateHz}Hz", "滤镜" to "12 预设")
+            OphotoPageHeader(
+                title = "设置",
+                subtitle = "${hw.displayTitle} · ${hw.maxRefreshRateHz}Hz · 全部数据保存在本机",
             )
+        }
+        // 交互（Deference）：取景时控件自动隐去，轻触唤回
+        item {
+            SettingsGroupCard("交互手感", icon = Icons.Rounded.Tune) {
+                SettingSwitchRow("取景时 4 秒后自动隐去工具栏", settings.autoHideChrome) { v ->
+                    scope.launch { container.preferences.update { it.copy(autoHideChrome = v) } }
+                }
+                SettingSwitchRow("长按画面隐藏全部叠层（纯构图）", settings.longPressCleanView) { v ->
+                    scope.launch { container.preferences.update { it.copy(longPressCleanView = v) } }
+                }
+            }
         }
         // 1. OPPO / ColorOS Hardware & Physical Lens Inspector
         item {
-            SettingsGroupCard("📷 多摄光学能力  ·  ${hw.ecosystem.displayLabel}", icon = Icons.Rounded.CameraAlt) {
+            SettingsGroupCard("镜头与传感器", icon = Icons.Rounded.CameraAlt) {
                 Text(
                     text = hw.displayTitle,
                     style = MaterialTheme.typography.titleSmall,
@@ -151,7 +159,7 @@ fun SettingsScreen(
 
         // 2. Camera & HUD Controls
         item {
-            SettingsGroupCard("🎛️ 取景与交互  ·  仪器级控制", icon = Icons.Rounded.Brush) {
+            SettingsGroupCard("取景叠加与操控", icon = Icons.Rounded.Brush) {
                 SettingSwitchRow("电子水平仪 0.0°翡翠对齐", settings.showLeveler) { v -> scope.launch { container.preferences.update { it.copy(showLeveler = v) } } }
                 SettingSwitchRow("实时直方图浮层", settings.showHistogram) { v -> scope.launch { container.preferences.update { it.copy(showHistogram = v) } } }
                 SettingSwitchRow("高光斑马纹预警 96%", settings.showZebraStripes) { v -> scope.launch { container.preferences.update { it.copy(showZebraStripes = v) } } }
@@ -159,7 +167,7 @@ fun SettingsScreen(
                 SettingSwitchRow("触屏即拍", settings.touchToCapture) { v -> scope.launch { container.preferences.update { it.copy(touchToCapture = v) } } }
                 SettingSwitchRow("前摄镜像保持", settings.mirrorFrontCamera) { v -> scope.launch { container.preferences.update { it.copy(mirrorFrontCamera = v) } } }
                 Spacer(Modifier.height(6.dp))
-                Text("取景亮度方案（只影响观感，不改变成片曝光）", style = MaterialTheme.typography.labelMedium, color = BrassGold, fontWeight = FontWeight.SemiBold)
+                Text("取景亮度（只影响屏幕观感，不改变成片曝光）", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(ViewfinderBrightnessMode.entries) { mode ->
                         TopHudChip(mode.label, settings.viewfinderBrightness == mode) {
@@ -174,7 +182,7 @@ fun SettingsScreen(
                     scope.launch { container.preferences.update { it.copy(keepAeOnTap = v) } }
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("音量键映射", style = MaterialTheme.typography.labelMedium, color = BrassGold, fontWeight = FontWeight.SemiBold)
+                Text("音量键映射", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(VolumeKeyAction.entries) { act ->
                         TopHudChip(act.label, settings.volumeKeyAction == act) { scope.launch { container.preferences.update { it.copy(volumeKeyAction = act) } } }
@@ -185,13 +193,13 @@ fun SettingsScreen(
 
         // 3. Filter, Video LUT Performance & Floating Window
         item {
-            SettingsGroupCard("🎞 滤镜与大师悬浮窗", icon = Icons.Rounded.Memory) {
+            SettingsGroupCard("滤镜与悬浮参考", icon = Icons.Rounded.Memory) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("默认强度 ${(settings.defaultFilterStrength * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = BrassGold, fontWeight = FontWeight.SemiBold)
                     Box(Modifier.clip(RoundedCornerShape(8.dp)).background(BrassGold.copy(0.18f)).padding(horizontal = 8.dp, vertical = 3.dp)) { Text("${(settings.defaultFilterStrength*100).toInt()}%", color = BrassGold, style = MaterialTheme.typography.labelSmall) }
                 }
                 Slider(value = settings.defaultFilterStrength, onValueChange = { s -> scope.launch { container.preferences.update { it.copy(defaultFilterStrength = s) } } }, valueRange = 0.2f..1.0f, colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold))
-                Text("录像 LUT 功耗策略", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+                Text("录像 LUT 策略", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(VideoLutMode.entries) { mode -> TopHudChip(mode.label, settings.videoLutMode == mode) { scope.launch { container.preferences.update { it.copy(videoLutMode = mode) } } } }
                 }
@@ -209,7 +217,7 @@ fun SettingsScreen(
 
         // 4. Storage Naming & Privacy Sandbox
         item {
-            SettingsGroupCard("🔒 存储与隐私沙盒", icon = Icons.Rounded.Security) {
+            SettingsGroupCard("存储与隐私", icon = Icons.Rounded.Security) {
                 OutlinedTextField(
                     value = settings.fileNameTemplate,
                     onValueChange = { tpl -> scope.launch { container.preferences.update { it.copy(fileNameTemplate = tpl) } } },
@@ -231,7 +239,7 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsGroupCard("ℹ️ 关于 · Ophoto", icon = Icons.Rounded.FolderSpecial) {
+            SettingsGroupCard("关于 Ophoto", icon = Icons.Rounded.FolderSpecial) {
                 Text(
                     "Ophoto ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})  ·  Luminous Viewfinder  ·  100% 原创滤镜 · 离线计算 · 本地存储",
                     style = MaterialTheme.typography.bodySmall,
@@ -252,17 +260,16 @@ private fun SettingsGroupCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF161B26), Color(0xFF0F121A))), RoundedCornerShape(16.dp))
-            .border(1.dp, Color.White.copy(0.07f), RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .background(com.ophoto.ui.theme.MaterialThin)
+            .border(0.7.dp, com.ophoto.ui.theme.MaterialHairline, RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).background(BrassGold.copy(0.16f)).border(0.8.dp, BrassGold.copy(0.30f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = BrassGold, modifier = Modifier.size(14.dp)) }
+            Icon(icon, null, tint = BrassGold, modifier = Modifier.size(15.dp))
             Text(title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(HairlineBorder.copy(0.6f)))
         content()
     }
 }
@@ -274,11 +281,11 @@ private fun SettingSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF12151E)).border(0.8.dp, HairlineBorder, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 9.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = title, style = MaterialTheme.typography.bodySmall, color = TextPrimary, modifier = Modifier.weight(1f))
+        Text(text = title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.weight(1f).padding(end = 12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange, colors = SwitchDefaults.colors(checkedThumbColor = ObsidianBg, checkedTrackColor = BrassGold, uncheckedThumbColor = TextMuted, uncheckedTrackColor = Color(0xFF212734)))
     }
 }
@@ -303,7 +310,7 @@ private fun CameraHealthCard(container: OphotoContainer) {
     val engine = container.cameraEngine as? CameraX2Engine
     val binding = engine?.currentBinding()
 
-    SettingsGroupCard("🩺 相机体检 · 取景黑场诊断", icon = Icons.Rounded.CameraAlt) {
+    SettingsGroupCard("相机体检", icon = Icons.Rounded.CameraAlt) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusPill(
                 label = "预览",
