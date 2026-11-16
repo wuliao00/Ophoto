@@ -970,28 +970,13 @@ private fun RecentCapturesStrip(
     }
 }
 
-/** 轻量缩略图：ContentResolver 解码到 120px，失败则显示占位。 */
+/** 轻量缩略图：按 160px 采样解码，失败则显示占位。 */
 @Composable
 private fun AsyncPhotoThumb(uriString: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bmp by androidx.compose.runtime.produceState<Bitmap?>(null, uriString) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { ins ->
-                    val opts = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeStream(ins, null, opts)
-                    val sample = ((opts.outWidth.coerceAtLeast(1)) / 160).coerceAtLeast(1)
-                    context.contentResolver.openInputStream(Uri.parse(uriString))?.use { ins2 ->
-                        BitmapFactory.decodeStream(
-                            ins2, null,
-                            BitmapFactory.Options().apply { inSampleSize = sample },
-                        )
-                    }
-                }
-            }.getOrNull()
-        }
+    var bmp by remember(uriString) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uriString) {
+        bmp = withContext(Dispatchers.IO) { decodeThumbnail(context, uriString) }
     }
     val image = bmp
     if (image != null) {
@@ -1010,6 +995,18 @@ private fun AsyncPhotoThumb(uriString: String, modifier: Modifier = Modifier) {
         }
     }
 }
+
+private fun decodeThumbnail(context: android.content.Context, uriString: String): Bitmap? = runCatching {
+    val uri = Uri.parse(uriString)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { ins ->
+        BitmapFactory.decodeStream(ins, null, bounds)
+    }
+    val sample = (minOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1) / 200).coerceAtLeast(1)
+    context.contentResolver.openInputStream(uri)?.use { ins ->
+        BitmapFactory.decodeStream(ins, null, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+}.getOrNull()
 
 // =========================================================================
 // FILTER panel with live filmstrip thumbnails
