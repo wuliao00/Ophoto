@@ -100,6 +100,8 @@ fun OphotoAppShell(
 ) {
     var activeTab by rememberSaveable { mutableStateOf(TopDestination.CAMERA) }
 
+    // 相机与暗房都是「内容铺满整屏、控件自己处理安全区」的页面
+    val fullBleed = activeTab == TopDestination.CAMERA || activeTab == TopDestination.EDITOR
     val immersiveCamera = activeTab == TopDestination.CAMERA
     // 全局标签栏始终保留（否则用户在沉浸取景里会找不到出口）；
     // 相机自身的读数与工具行由相机页自行淡出。
@@ -142,10 +144,10 @@ fun OphotoAppShell(
                 onCameraChromeIdle = {},
                 modifier = Modifier
                     .fillMaxSize()
-                    // 相机页取景画面延伸至状态栏与导航栏之下（全屏画布），
-                    // 控件通过 bottomInset 抬高到标签栏之上；其他页保留安全区。
-                    .then(if (immersiveCamera) Modifier else Modifier.statusBarsPadding())
-                    .padding(bottom = if (immersiveCamera) 0.dp else 74.dp),
+                    // 相机/暗房：画面延伸到状态栏与导航栏之下（全屏画布）。
+                    // 相机控件通过 bottomInset 抬高到标签栏之上；暗房自己留出 66dp。
+                    .then(if (fullBleed) Modifier else Modifier.statusBarsPadding())
+                    .padding(bottom = if (fullBleed) 0.dp else 74.dp),
                 bottomInset = 70.dp,
             )
 

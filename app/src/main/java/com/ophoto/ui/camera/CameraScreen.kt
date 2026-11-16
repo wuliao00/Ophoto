@@ -889,8 +889,8 @@ fun CameraScreen(
                 }
             }
 
-            // 变焦：单行胶囊，恒常可见（拍摄核心操作）
-            if (hasCameraPerm) {
+            // 变焦：单行胶囊，恒常可见（拍摄核心操作）；纯构图模式下最简
+            if (hasCameraPerm && chromeDensity != ChromeDensity.HIDDEN) {
                 ZoomPillRow(zoomRatio = zoomRatio, onZoom = { setZoom(it) })
                 Spacer(Modifier.height(10.dp))
             }
@@ -979,11 +979,22 @@ fun CameraScreen(
                 }
             }
 
+            if (chromeDensity == ChromeDensity.COMPACT) {
+                Text(
+                    text = "轻触画面唤回控件",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .clickable { wake() },
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
 
             // 次要工具行：滤镜 / 亮度 / 定时 / 网格 —— 半透明胶囊，FULL 时出现
             androidx.compose.animation.AnimatedVisibility(
-                visible = chromeDensity != ChromeDensity.HIDDEN,
+                visible = chromeDensity == ChromeDensity.FULL,
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(140)),
             ) {

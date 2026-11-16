@@ -187,9 +187,17 @@ jobs:
           if not changelog:
               changelog = "### 更新内容\n- 详细内容见仓库 CHANGELOG.md。"
           # 逐行拼接，避免 heredoc 缩进被 Markdown 当成代码块
+          preview = os.path.isfile("release-preview/three-up.jpg")
           lines = [
               f"## Ophoto {tag} · {codename}",
               "",
+          ]
+          if preview:
+              lines += [
+                  f"![Ophoto {tag} 界面预览](https://raw.githubusercontent.com/{repo}/{tag}/release-preview/three-up.jpg)",
+                  "",
+              ]
+          lines += [
               changelog,
               "",
               "### 下载",
