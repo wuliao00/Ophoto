@@ -723,25 +723,41 @@ fun CameraScreen(
                     Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha * 0.92f)))
                 }
 
-                // 左下：真实测光/画质遥测
+                // 底部 HUD 带：左「直方图 + 实测亮度」、右「焦段档位」，全部来自真实预览帧
                 if (hasCameraPerm) {
                     Column(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 10.dp, bottom = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (settings.showHistogram && liveHistogram != null) {
-                            LiveHistogramHud(histogram = liveHistogram!!)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            if (settings.showHistogram && liveHistogram != null) {
+                                LiveHistogramHud(histogram = liveHistogram!!)
+                            } else {
+                                Spacer(Modifier.width(1.dp))
+                            }
+                            if (frameLuma != null) {
+                                LumaMeterBar(
+                                    luma = frameLuma!!,
+                                    effectiveEv = effectiveEv,
+                                    zoomLabel = formatZoomLabel(zoomRatio),
+                                )
+                            }
                         }
-                        if (frameLuma != null) {
-                            LumaMeterBar(
-                                luma = frameLuma!!,
-                                effectiveEv = effectiveEv,
-                                zoomLabel = formatZoomLabel(zoomRatio),
-                                bindingLabel = bindingLabel,
-                            )
-                        }
+                        ZoomPillRow(
+                            zoomRatio = zoomRatio,
+                            onZoom = { z ->
+                                zoomRatio = z
+                                container.cameraEngine.setZoomRatio(z)
+                            },
+                        )
                     }
                 }
 
@@ -775,48 +791,6 @@ fun CameraScreen(
                             color = Color.White,
                         )
                     }
-                }
-
-                // 变焦档位（底部居中，系统相机同款手势）
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 8.dp)
-                        .background(Color(0xC40B0D12), CircleShape)
-                        .padding(horizontal = 5.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ZOOM_PRESETS.forEach { z ->
-                        val active = kotlin.math.abs(zoomRatio - z) < 0.12f
-                        Text(
-                            text = formatZoomLabel(z),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                            color = if (active) ObsidianBg else Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (active) BrassGold else Color.Transparent)
-                                .clickable {
-                                    zoomRatio = z
-                                    container.cameraEngine.setZoomRatio(z)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 5.dp),
-                        )
-                    }
-                }
-
-                if (previewStreaming && previewResolution.isNotEmpty()) {
-                    Text(
-                        text = previewResolution,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(10.dp)
-                            .background(Color(0xA60B0D12), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 7.dp, vertical = 4.dp),
-                    )
                 }
 
                 if (countdownRemaining > 0) {
@@ -1265,13 +1239,44 @@ private fun BrightnessControlPanel(
     }
 }
 
-/** 取景底部测光条：把实测亮度、EV、焦段、会话能力放一行，仪器感 + 可诊断。 */
+/** 变焦档位药丸：0.6x / 1.0x / 2.0x / 3.0x / 5.0x，选中实心金底。 */
+@Composable
+private fun ZoomPillRow(
+    zoomRatio: Float,
+    onZoom: (Float) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Color(0xC40B0D12), CircleShape)
+            .border(0.6.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ZOOM_PRESETS.forEach { z ->
+            val active = kotlin.math.abs(zoomRatio - z) < 0.12f
+            Text(
+                text = formatZoomLabel(z),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                color = if (active) ObsidianBg else Color.White.copy(alpha = 0.86f),
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (active) BrassGold else Color.Transparent)
+                    .clickable { onZoom(z) }
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+            )
+        }
+    }
+}
+
+/** 取景测光条：实测亮度、生效 EV、焦段一行显示，紧凑到不会和直方图抢位置。 */
 @Composable
 private fun LumaMeterBar(
     luma: FrameLuma,
     effectiveEv: Float,
     zoomLabel: String,
-    bindingLabel: String,
 ) {
     Row(
         modifier = Modifier
@@ -1310,13 +1315,6 @@ private fun LumaMeterBar(
             style = MaterialTheme.typography.labelSmall,
             color = TextSecondary,
         )
-        if (bindingLabel.isNotEmpty()) {
-            Text(
-                text = bindingLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = TextMuted,
-            )
-        }
     }
 }
 
