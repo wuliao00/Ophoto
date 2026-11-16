@@ -99,11 +99,10 @@ fun OphotoAppShell(
     modifier: Modifier = Modifier,
 ) {
     var activeTab by rememberSaveable { mutableStateOf(TopDestination.CAMERA) }
-    // 相机页沉浸态：true = 控件可见。由相机页内部的交互回调驱动。
-    var cameraChromeVisible by rememberSaveable { mutableStateOf(true) }
 
     val immersiveCamera = activeTab == TopDestination.CAMERA
-    val showChrome = !immersiveCamera || cameraChromeVisible
+    // 全局标签栏始终保留（否则用户在沉浸取景里会找不到出口）；
+    // 相机自身的读数与工具行由相机页自行淡出。
 
     if (isExpandedDualPane) {
         Row(
@@ -122,8 +121,8 @@ fun OphotoAppShell(
                     container = container,
                     isExpandedDualPane = true,
                     onNavigateTab = { activeTab = it },
-                    onCameraChromeInteraction = { cameraChromeVisible = true },
-                    onCameraChromeIdle = { cameraChromeVisible = false },
+                    onCameraChromeInteraction = {},
+                    onCameraChromeIdle = {},
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -139,26 +138,22 @@ fun OphotoAppShell(
                 container = container,
                 isExpandedDualPane = false,
                 onNavigateTab = { activeTab = it },
-                onCameraChromeInteraction = { cameraChromeVisible = true },
-                onCameraChromeIdle = { cameraChromeVisible = false },
+                onCameraChromeInteraction = {},
+                onCameraChromeIdle = {},
                 modifier = Modifier
                     .fillMaxSize()
-                    // 相机页取景画面延伸至状态栏之下（全屏画布），其他页保留安全区
+                    // 相机页取景画面延伸至状态栏与导航栏之下（全屏画布），
+                    // 控件通过 bottomInset 抬高到标签栏之上；其他页保留安全区。
                     .then(if (immersiveCamera) Modifier else Modifier.statusBarsPadding())
                     .padding(bottom = if (immersiveCamera) 0.dp else 74.dp),
+                bottomInset = 70.dp,
             )
 
-            AnimatedVisibility(
-                visible = showChrome,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 },
+            BottomChrome(
+                activeTab = activeTab,
+                onSelect = { activeTab = it },
                 modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                BottomChrome(
-                    activeTab = activeTab,
-                    onSelect = { activeTab = it },
-                )
-            }
+            )
         }
     }
 }
@@ -168,9 +163,10 @@ fun OphotoAppShell(
 private fun BottomChrome(
     activeTab: TopDestination,
     onSelect: (TopDestination) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
@@ -318,6 +314,7 @@ private fun DestinationBody(
     onCameraChromeInteraction: () -> Unit,
     onCameraChromeIdle: () -> Unit,
     modifier: Modifier = Modifier,
+    bottomInset: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     androidx.compose.animation.AnimatedContent(
         targetState = activeTab,
@@ -342,6 +339,7 @@ private fun DestinationBody(
                 onJumpToEditor = { onNavigateTab(TopDestination.EDITOR) },
                 onChromeInteraction = onCameraChromeInteraction,
                 onChromeIdle = onCameraChromeIdle,
+                bottomInset = bottomInset,
                 modifier = Modifier.fillMaxSize(),
             )
 

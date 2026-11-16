@@ -82,6 +82,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -190,6 +191,8 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     onChromeInteraction: () -> Unit = {},
     onChromeIdle: () -> Unit = {},
+    /** 底部全局标签栏高度：让快门与工具行浮在标签栏之上而不是被遮住。 */
+    bottomInset: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -718,7 +721,18 @@ fun CameraScreen(
                         )
                     }
 
-                    // 中：模式切换（唯一的横向主控）
+                    // 中：模式切换（唯一的横向主控；窄屏自动省略「专业」，可在「更多」里开启）
+                    val compactModes = listOf(
+                        CameraCaptureMode.PHOTO,
+                        CameraCaptureMode.PORTRAIT,
+                        CameraCaptureMode.NIGHT,
+                        CameraCaptureMode.VIDEO,
+                    )
+                    val modesToShow = if (captureMode in compactModes) {
+                        compactModes
+                    } else {
+                        compactModes + captureMode
+                    }
                     Row(
                         modifier = Modifier
                             .clip(OphotoShape.Chip)
@@ -726,13 +740,7 @@ fun CameraScreen(
                             .padding(3.dp),
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        listOf(
-                            CameraCaptureMode.PHOTO,
-                            CameraCaptureMode.PORTRAIT,
-                            CameraCaptureMode.NIGHT,
-                            CameraCaptureMode.PRO,
-                            CameraCaptureMode.VIDEO,
-                        ).forEach { mode ->
+                        modesToShow.forEach { mode ->
                             val active = captureMode == mode
                             Text(
                                 text = mode.label,
@@ -746,7 +754,7 @@ fun CameraScreen(
                                         captureMode = mode
                                         wake()
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    .padding(horizontal = 9.dp, vertical = 6.dp),
                             )
                         }
                     }
@@ -853,7 +861,7 @@ fun CameraScreen(
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD9000000), Color(0xF2000000))))
                 .navigationBarsPadding()
-                .padding(top = 18.dp, bottom = 8.dp),
+                .padding(top = 14.dp, bottom = bottomInset + 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // 测光/直方图：只在 FULL 且需要时出现
