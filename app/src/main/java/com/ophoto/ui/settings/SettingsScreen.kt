@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -373,8 +374,8 @@ private fun CameraHealthCard(container: OphotoContainer) {
                 style = MaterialTheme.typography.labelMedium,
             )
         }
-        probeResult?.let { sample ->
-            val verdict = when {
+        probeResult?.let { sample: MeteringSample ->
+            val verdict: String = when {
                 sample.isBlackFrame -> "疑似黑场：请点「修复曝光」，或检查镜头是否被遮挡"
                 sample.isUnderexposed -> "曝光偏暗：建议提亮取景或提高 EV"
                 sample.isOverexposed -> "过曝：建议降低 EV，避免高光溢出"

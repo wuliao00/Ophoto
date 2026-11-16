@@ -20,6 +20,10 @@ class ViewfinderHost {
     var previewView: PreviewView? = null
         private set
 
+    /** 首次进入相机页时创建 PreviewView，之后跨页复用同一实例。 */
+    fun ensurePreviewView(factory: () -> PreviewView): PreviewView =
+        previewView ?: factory().also { previewView = it }
+
     /** true 表示最近一次绑定已完成，可以被重新挂载。 */
     var sessionReady: Boolean = false
 

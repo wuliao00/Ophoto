@@ -40,6 +40,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Exposure
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
@@ -220,11 +222,13 @@ fun CameraScreen(
 
     // 取景 View 走共享宿主：切页返回时复用同一 PreviewView，不再重建会话。
     val previewView = remember(context, host) {
-        host.previewView ?: PreviewView(context).apply {
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            setBackgroundColor(android.graphics.Color.BLACK)
-        }.also { host.previewView = it }
+        host.ensurePreviewView {
+            PreviewView(context).apply {
+                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+                setBackgroundColor(android.graphics.Color.BLACK)
+            }
+        }
     }
     var previewStreaming by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf<String?>(null) }
@@ -762,7 +766,7 @@ fun CameraScreen(
                 }
 
                 // 右上：暗场/偏暗提示（可一键修复）
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = (isDarkFrame || isDimFrame) && previewStreaming,
                     enter = fadeIn(),
                     exit = fadeOut(),

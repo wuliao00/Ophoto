@@ -91,7 +91,7 @@ object ViewfinderMeterProbe {
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    openError = CameraDevice.StateCallback.ERROR_CAMERA_DISCONNECTED
+                    openError = -1
                     runCatching { camera.close() }
                     opened.countDown()
                 }
