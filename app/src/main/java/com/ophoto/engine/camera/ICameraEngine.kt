@@ -93,6 +93,11 @@ data class CaptureConfig(
     val timerSeconds: Int = 0,
     val burstCount: Int = 1,
     val bracketStops: Boolean = false,
+    /**
+     * 拍完照片后要恢复的预览曝光（取景提亮 EV）。
+     * 拍照使用 [exposure]（用户 EV），预览使用该值，避免「取景被提亮 → 成片过曝」。
+     */
+    val previewExposure: ExposureConfig? = null,
 )
 
 data class VideoConfig(
@@ -147,4 +152,16 @@ interface ICameraEngine {
     fun setZoomRatio(zoom: Float)
     fun setFilter(filter: FilterConfig)
     fun getCameraCapabilities(): CameraCapabilities
+
+    /** 当前设备实际生效的 EV 补偿（受设备步长限幅），null 表示不支持。 */
+    fun effectiveEv(): Float? = null
+
+    /** 把曝光恢复为「自动 AE + 0 EV」的安全基线，用于一键修复黑屏取景。 */
+    fun resetExposureBaseline() = Unit
+
+    /**
+     * 取景亮度遥测：返回一帧真实传感器亮度统计。实现方可释放/恢复预览会话。
+     * 返回 null 表示设备不支持探针（此时 UI 不应把画面判为黑场）。
+     */
+    suspend fun probeViewfinderBrightness(): MeteringSample? = null
 }

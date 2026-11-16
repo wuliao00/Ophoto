@@ -77,8 +77,8 @@ android {
         applicationId = "com.ophoto"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.4.4"
+        versionCode = 11
+        versionName = "1.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -92,7 +92,7 @@ android {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // v1.4.0 Studio Pro Max：保留全量资源与 dex 以满足 >20MB 高保真发布要求
+            // v1.5.0 Luminous Finder：保留全量资源与 dex 以满足 >20MB 高保真发布要求
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(

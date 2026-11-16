@@ -230,7 +230,12 @@ private fun PremiumNavigationRail(
 
             // Version badge
             Surface(color = ControlPillBg, shape = RoundedCornerShape(8.dp)) {
-                Text("v1.0.0", style = MaterialTheme.typography.labelSmall, color = TextMuted, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                Text(
+                    "v${com.ophoto.BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
     }

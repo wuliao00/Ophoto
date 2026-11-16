@@ -6,7 +6,7 @@
 [![Stack](https://img.shields.io/badge/Kotlin%202.0-Compose%20%2B%20Camera2%20%2B%20OpenGL%20ES%203.0-E5B869)](app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **📥 直接下载手机 APK 安装包（GitHub Releases）**：[**Ophoto v1.0.0 正式签名版 (`Ophoto-v1.0.0-release.apk`)**](https://github.com/wuliao00/Ophoto/releases/tag/v1.0.0) · **更新日志**: [CHANGELOG.md](CHANGELOG.md)
+> **📥 直接下载手机 APK 安装包（GitHub Releases）**：[**Ophoto v1.5.0 Luminous Finder 正式签名版 (`Ophoto-v1.5.0-release.apk`)**](https://github.com/wuliao00/Ophoto/releases/latest) · **更新日志**: [CHANGELOG.md](CHANGELOG.md)
 > **英文文档 / English README**: [README.en.md](README.en.md) · **架构与安全规范**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · **浏览器实时光学预览台**: [`docs/web-studio/index.html`](docs/web-studio/index.html)
 
 **Ophoto**（包名：`com.ophoto`）是一款专为 **OPPO / OnePlus（一加）/ realme 真我（ColorOS 13–17 / OxygenOS / realme UI）** 深度打磨、同时完整兼容主流 Android 8.0+（API 26–35）机型的**专业光学相机、实时 3D LUT 胶片调色、系统大师模式悬浮窗与摄影现场助手一体化应用**。
@@ -38,6 +38,13 @@
   - 支持将任意内置/自建滤镜**一键反向烘焙导出为标准 `.cube` 文件**，直接用于 DaVinci Resolve / Premiere Pro / Photoshop / 第三方相机。
 - **系统相机大师模式半透明悬浮窗（`MasterOverlayService`）**：
   - 通过 `SYSTEM_ALERT_WINDOW` 提供 **标准大师卡 / 紧凑胶囊 / 迷你悬浮球** 三种形态，支持手指自由拖拽避让取景主体、左右切换预设、一键拉起 ColorOS 系统原生相机，并内置 **ColorOS 14–17 侧载受限设置解锁指引**。
+
+### 2.5 取景亮度与黑场诊断（v1.5.0 · Luminous Finder）
+- **观感与成片曝光解耦**：5 档取景亮度方案（`自然原片 0EV` / `均衡提亮 +0.7EV` / `明亮取景 +1.3EV` / `棚拍高调 +2.0EV` / `手机式观感`）+ 1Hz 真实帧自适应提亮，只抬亮屏幕观感，JPEG/RAW 仍按用户 EV 曝光。
+- **绑定逐级降级**：`UHD 预览 + 拍照 + 录像` → `标准全量` → `仅拍照` → `仅预览`，任一段成功即出画；全部失败给出可读原因（被占用 / 权限被拦截 / 无兼容组合）。
+- **一键修复黑屏**：清空手动 ISO / 快门 / EV、恢复 AE/AWB 自动、切明亮取景并重绑会话。
+- **相机体检卡**：显示真实预览分辨率、录像与高像素降级状态，并可测量一帧真实传感器亮度（独立 `32×32` YUV 探针，读完即释放，不写相册），内置最近运行日志。
+- **真实帧监看**：实测亮度测光条、实时直方图、网格化 96% 高光斑马纹，全部来自真实预览帧。
 
 ### 3. 摄影现场助手（Field Assistant）
 - **场景镜头灵感卡**：覆盖人像写真、街头人文、蓝调夜景、自然风光、美食静物、建筑极简等高频实拍场景，内置**参数化构图与光线方向蓝图 Canvas**、机位姿势拆解、没带反光板/脚架时的现场替代方案，支持**一键将焦段、滤镜、曝光补偿、色温与构图辅助线直接装载进相机取景器开拍**。

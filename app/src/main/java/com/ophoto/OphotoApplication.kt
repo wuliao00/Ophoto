@@ -14,6 +14,7 @@ import com.ophoto.engine.camera.CameraX2Engine
 import com.ophoto.engine.camera.ICameraEngine
 import com.ophoto.engine.filter.FilterEngineImpl
 import com.ophoto.engine.filter.IFilterEngine
+import com.ophoto.ui.camera.ViewfinderHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +46,9 @@ class OphotoContainer(appContext: Context) {
     val cameraEngine: ICameraEngine = CameraX2Engine(appContext)
     val filterEngine: IFilterEngine = FilterEngineImpl()
     val hardwareProfile: DeviceHardwareProfile by lazy { OppoDeviceInspector.inspect(appContext) }
+
+    /** 取景会话共享宿主：跨页面切换时保留预览 View，消除二次绑定黑场。 */
+    val viewfinderHost: ViewfinderHost = ViewfinderHost()
 
     private val _hardwareKeyEvents = MutableSharedFlow<Int>(extraBufferCapacity = 4)
     val hardwareKeyEvents: SharedFlow<Int> = _hardwareKeyEvents

@@ -42,6 +42,35 @@ jobs:
         if: failure()
         run: echo "===== GRADLE TAIL =====" && tail -n 120 /tmp/gradlew-output.log || true
 
+      - name: Upload Gradle log (diagnostics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-diagnostics
+          path: |
+            /tmp/gradlew-output.log
+            /tmp/release-build.log
+          if-no-files-found: ignore
+
+      - name: Echo failure diagnostics into annotations
+        if: failure()
+        run: |
+          python3 - <<'PYEOF'
+          import os, re
+          files = ["/tmp/gradlew-output.log", "/tmp/release-build.log"]
+          lines = []
+          for f in files:
+              if os.path.isfile(f):
+                  with open(f, encoding="utf-8", errors="replace") as fh:
+                      lines.extend(fh.readlines())
+          interesting = [l.rstrip() for l in lines if re.search(r"(^e: |^w: |error:|FAILED|What went wrong|Caused by:|Unresolved|Lint found|Execution failed)", l)]
+          chunk = []
+          for line in interesting[-60:] or lines[-40:]:
+              chunk.append(line[:500])
+          payload = "%0A".join(chunk)
+          print("::error title=GRADLE_DIAG::" + payload[:6000])
+          PYEOF
+
       - name: Verify exported Room schemas match committed snapshots
         run: |
           git diff --exit-code -- app/schemas/

@@ -41,6 +41,22 @@ enum class FloatingHudStyle(val label: String) {
     MINI_ORB("迷你悬浮球"),
 }
 
+/** 取景亮度方案：ColorOS 家族实测夜间/室内更易偏暗，需要可选的补偿档位。 */
+enum class ViewfinderBrightnessMode(
+    val label: String,
+    /** 预览 EV 增量（只影响取景，成片按用户 EV 曝光）。 */
+    val evOffset: Float,
+    /** 自适应提亮倍率：0 表示尊重原片、不自动抬亮。 */
+    val autoLiftScale: Float,
+    val hint: String,
+) {
+    NATURAL("自然原片 0EV", 0f, 0f, "完全原片，适合夜景与高反差场景"),
+    BALANCED("均衡提亮 +0.7EV", 0.7f, 1.0f, "默认，室内与阴天更通透"),
+    BRIGHT("明亮取景 +1.3EV", 1.3f, 1.15f, "暗光环境构图更清晰"),
+    STUDIO("棚拍高调 +2.0EV", 2.0f, 1.3f, "棚拍/白底商品高调观感"),
+    PROCESSED("手机式观感", 0f, 1.0f, "接近系统相机观感，自动抬亮暗部"),
+}
+
 data class UserSettings(
     val shutterSound: Boolean = true,
     val compositionGuide: CompositionGuideType = CompositionGuideType.RULE_OF_THIRDS,
@@ -62,6 +78,12 @@ data class UserSettings(
     val floatingHudStyle: FloatingHudStyle = FloatingHudStyle.STANDARD_CARD,
     val floatingHudOpacity: Float = 0.86f,
     val selectedCityId: String = "hk",
+    /** 取景亮度方案，默认均衡提亮，兼顾黑场与高光溢出。 */
+    val viewfinderBrightness: ViewfinderBrightnessMode = ViewfinderBrightnessMode.BALANCED,
+    /** 取景暗场自诊断：画面偏暗时提示并可一键修复。 */
+    val autoBrightnessRescue: Boolean = true,
+    /** 半按/触控时是否保持 AE 锁定，避免点测光把画面压暗。 */
+    val keepAeOnTap: Boolean = false,
 )
 
 class AppPreferences(private val context: Context) {
@@ -88,6 +110,9 @@ class AppPreferences(private val context: Context) {
         val FLOATING_OPACITY = floatPreferencesKey("floating_hud_opacity")
         val SELECTED_CITY = stringPreferencesKey("selected_city")
         val OVERLAY_ACTIVE_PRESET_ID = stringPreferencesKey("overlay_active_preset_id")
+        val VIEWFINDER_BRIGHTNESS = stringPreferencesKey("viewfinder_brightness")
+        val AUTO_BRIGHTNESS_RESCUE = booleanPreferencesKey("auto_brightness_rescue")
+        val KEEP_AE_ON_TAP = booleanPreferencesKey("keep_ae_on_tap")
     }
 
     val settingsFlow: Flow<UserSettings> = context.ophotoDataStore.data.map { pref ->
@@ -120,6 +145,11 @@ class AppPreferences(private val context: Context) {
                 ?: FloatingHudStyle.STANDARD_CARD,
             floatingHudOpacity = pref[Keys.FLOATING_OPACITY] ?: 0.86f,
             selectedCityId = pref[Keys.SELECTED_CITY] ?: "hk",
+            viewfinderBrightness = pref[Keys.VIEWFINDER_BRIGHTNESS]
+                ?.let { runCatching { ViewfinderBrightnessMode.valueOf(it) }.getOrNull() }
+                ?: ViewfinderBrightnessMode.BALANCED,
+            autoBrightnessRescue = pref[Keys.AUTO_BRIGHTNESS_RESCUE] ?: true,
+            keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
         )
     }
 
@@ -158,6 +188,11 @@ class AppPreferences(private val context: Context) {
                     ?: FloatingHudStyle.STANDARD_CARD,
                 floatingHudOpacity = pref[Keys.FLOATING_OPACITY] ?: 0.86f,
                 selectedCityId = pref[Keys.SELECTED_CITY] ?: "hk",
+                viewfinderBrightness = pref[Keys.VIEWFINDER_BRIGHTNESS]
+                    ?.let { runCatching { ViewfinderBrightnessMode.valueOf(it) }.getOrNull() }
+                    ?: ViewfinderBrightnessMode.BALANCED,
+                autoBrightnessRescue = pref[Keys.AUTO_BRIGHTNESS_RESCUE] ?: true,
+                keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
             )
             val next = block(current)
             pref[Keys.SHUTTER_SOUND] = next.shutterSound
@@ -180,6 +215,9 @@ class AppPreferences(private val context: Context) {
             pref[Keys.FLOATING_STYLE] = next.floatingHudStyle.name
             pref[Keys.FLOATING_OPACITY] = next.floatingHudOpacity
             pref[Keys.SELECTED_CITY] = next.selectedCityId
+            pref[Keys.VIEWFINDER_BRIGHTNESS] = next.viewfinderBrightness.name
+            pref[Keys.AUTO_BRIGHTNESS_RESCUE] = next.autoBrightnessRescue
+            pref[Keys.KEEP_AE_ON_TAP] = next.keepAeOnTap
         }
     }
 
