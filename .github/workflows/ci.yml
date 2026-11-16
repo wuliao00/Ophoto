@@ -42,6 +42,16 @@ jobs:
         if: failure()
         run: echo "===== GRADLE TAIL =====" && tail -n 120 /tmp/gradlew-output.log || true
 
+      - name: Upload Gradle log (diagnostics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-diagnostics
+          path: |
+            /tmp/gradlew-output.log
+            /tmp/release-build.log
+          if-no-files-found: ignore
+
       - name: Verify exported Room schemas match committed snapshots
         run: |
           git diff --exit-code -- app/schemas/
