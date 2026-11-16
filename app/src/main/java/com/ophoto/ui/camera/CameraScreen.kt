@@ -117,6 +117,7 @@ import com.ophoto.ui.theme.HairlineBorder
 import com.ophoto.ui.theme.InstrumentDeck
 import com.ophoto.ui.theme.MaterialHairline
 import com.ophoto.ui.theme.MaterialRegular
+import com.ophoto.ui.theme.MaterialThick
 import com.ophoto.ui.theme.MaterialThin
 import com.ophoto.ui.theme.OphotoShape
 import com.ophoto.ui.theme.pressScale
@@ -639,7 +640,7 @@ fun CameraScreen(
             } else {
                 CameraPermissionGate(onRequest = {
                     permLauncher.launch(
-                        CameraPermissionHelper.requiredCameraPermissions(includeAudio = false),
+                        CameraPermissionHelper.requiredCameraPermissions(includeAudio = false).toTypedArray(),
                     )
                 })
             }
@@ -1410,7 +1411,7 @@ private fun FiltersSheetContent(
                                 .background(
                                     Brush.linearGradient(
                                         listOf(
-                                            preset.accentColor.copy(alpha = 0.28f),
+                                            Color(android.graphics.Color.parseColor(preset.accentHex)).copy(alpha = 0.26f),
                                             Color.Transparent,
                                         ),
                                     ),
@@ -1641,11 +1642,40 @@ private fun ProSheetContent(
             )
             ProDialTab.SHUTTER -> ProSliderRow(
                 label = "快门速度",
-                value = exposure.shutterSeconds,
+                value = exposure.shutterSeconds.toFloat(),
                 range = 1f / 4000f..0.5f,
                 display = MetadataEngine.formatShutterSpeed(exposure.shutterSeconds),
-                onChange = { onExposure(exposure.copy(shutterSeconds = it, manualMode = true)) },
+                onChange = { onExposure(exposure.copy(shutterSeconds = it.toDouble(), manualMode = true)) },
             )
+            ProDialTab.FOCUS -> ProSliderRow(
+                label = "手动对焦",
+                value = focus.focusDistanceDiopters,
+                range = 0f..1f,
+                display = if (focus.manualFocus) "%.2f".format(focus.focusDistanceDiopters) else "AF 自动",
+                onChange = { onFocus(focus.copy(manualFocus = true, focusDistanceDiopters = it)) },
+            )
+            ProDialTab.METERING -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val modes = listOf(
+                    MeteringMode.CENTER_WEIGHTED to "中央重点",
+                    MeteringMode.MATRIX to "全局测光",
+                    MeteringMode.SPOT to "点测光",
+                    MeteringMode.FACE_PRIORITY to "人像优先",
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    modes.forEach { (mode, label) ->
+                        OphotoChip(
+                            label = label,
+                            selected = exposure.meteringMode == mode,
+                            onClick = { onExposure(exposure.copy(meteringMode = mode)) },
+                        )
+                    }
+                }
+                Text(
+                    "点测光只读取画面中心区域；人像优先会自动保护面部亮度。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                )
+            }
             ProDialTab.WB -> ProSliderRow(
                 label = "色温",
                 value = wb.manualKelvin.toFloat(),

@@ -346,7 +346,7 @@ private fun ShotCardDetailPanel(
             compositionGuide = card.compositionGuide,
             subjectX = card.subjectNormalizedX,
             subjectY = card.subjectNormalizedY,
-            lightDirectionDeg = card.lightDirectionDeg,
+            lightDirectionDeg = card.lightDirectionDeg.toDouble(),
             footnote = "主体锚点 · 主光方向（${card.cameraHeightHint}）",
             modifier = Modifier.fillMaxWidth().height(190.dp),
         )
@@ -474,7 +474,7 @@ private fun LightingDiagramsWorkspace(
                     compositionGuide = com.ophoto.data.local.CompositionGuideType.RULE_OF_THIRDS,
                     subjectX = 0.5f,
                     subjectY = 0.55f,
-                    lightDirectionDeg = selectedGuide.nodes.firstOrNull()?.angleDegFromCamera ?: 45.0,
+                    lightDirectionDeg = (selectedGuide.nodes.firstOrNull()?.angleDegFromCamera ?: 45f).toDouble(),
                     footnote = selectedGuide.lightRatio,
                     modifier = Modifier.fillMaxWidth().height(170.dp),
                 )
