@@ -119,6 +119,7 @@ import com.ophoto.ui.theme.OphotoChip
 import com.ophoto.ui.theme.OphotoPageHeader
 import com.ophoto.ui.theme.OphotoShape
 import com.ophoto.ui.theme.TextOnAccent
+import com.ophoto.ui.theme.pressScale
 
 @Composable
 fun MasterPresetCard(
