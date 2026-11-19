@@ -29,6 +29,8 @@ data class ShotInspirationCard(
     val subjectNormalizedY: Float, // 0..1
     val lightDirectionDeg: Float,  // 0 = right, 90 = top, 135 = back-left golden rim
     val linkedPresetId: String,
+    /** 这张灵感卡用哪张实拍底片做示范（显式指定，不再按分类兜底）。 */
+    val demoScene: SceneCategory = SceneCategory.PORTRAIT,
     val effectSummary: String,
     val stepByStepTips: List<String>,
     val fieldWorkaround: String,
@@ -57,6 +59,8 @@ data class LightingSetupGuide(
     val nodes: List<LampNode>,
     val keyPoints: List<String>,
     val linkedPresetId: String,
+    /** 这张灯位图最适合用哪张实拍底片做示范（显式指定，不再靠 id 猜）。 */
+    val demoScene: SceneCategory = SceneCategory.PORTRAIT,
 )
 
 data class ShootChecklistTemplate(
@@ -102,6 +106,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.38f,
             lightDirectionDeg = 135f,
             linkedPresetId = "amber_golden_hour",
+            demoScene = SceneCategory.PORTRAIT,
             effectSummary = "太阳位于人物斜后方 135°，发丝与肩线勾勒璀璨金边，背景树影化成温暖光斑。",
             stepByStepTips = listOf(
                 "切至 3x 长焦（约 70mm），让人物背对斜下方太阳并侧身回眸 30°",
@@ -125,6 +130,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.42f,
             lightDirectionDeg = 45f,
             linkedPresetId = "city_neon_night",
+            demoScene = SceneCategory.NIGHT,
             effectSummary = "利用街角积水倒映招牌冷暖霓虹，撑伞行人剪影成为视觉锚点，画面极具电影叙事感。",
             stepByStepTips = listOf(
                 "将手机倒置使主摄/2x 镜头尽量贴近积水表面，放大倒影面积",
@@ -148,6 +154,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.48f,
             lightDirectionDeg = 35f,
             linkedPresetId = "film_green_001",
+            demoScene = SceneCategory.STREET,
             effectSummary = "透过咖啡馆玻璃捕捉室外树影反光与人物低头翻书神态，虚实叠影自带呼吸感。",
             stepByStepTips = listOf(
                 "站在店外透过玻璃取景，让玻璃反射出约 30% 街对面绿树光斑",
@@ -171,6 +178,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.60f,
             lightDirectionDeg = 75f,
             linkedPresetId = "silver_documentary",
+            demoScene = SceneCategory.ARCHITECTURE,
             effectSummary = "把正午刺眼顶光变废为宝：只对地面亮区测光，把阴影压成纯黑画框，等待单人步入亮斑。",
             stepByStepTips = listOf(
                 "寻找骑楼柱廊、天桥阶梯等有强烈明暗分界线的几何空间",
@@ -194,6 +202,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.72f,
             lightDirectionDeg = 60f,
             linkedPresetId = "coastal_breeze_cyan",
+            demoScene = SceneCategory.TRAVEL,
             effectSummary = "海平线严格压在下三分线，占画面 2/3 的晴空与青蓝海浪衬托微小人物，清澈治愈。",
             stepByStepTips = listOf(
                 "打开 Ophoto 电子水平仪，直至中央刻度条变绿（0.0° 绝对水平）",
@@ -217,6 +226,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.52f,
             lightDirectionDeg = 120f,
             linkedPresetId = "bistro_gourmet",
+            demoScene = SceneCategory.GOURMET,
             effectSummary = "用 2x 焦段消除盘沿变形，对角线摆放主菜、水杯与刀叉，侧逆光勾出酱汁与蒸汽高光。",
             stepByStepTips = listOf(
                 "将主盘放在正中偏下，咖啡杯与餐具沿左上—右下对角线错落延伸",
@@ -240,6 +250,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.36f,
             lightDirectionDeg = 90f,
             linkedPresetId = "architectural_slate",
+            demoScene = SceneCategory.ARCHITECTURE,
             effectSummary = "超广角将旋转扶手拉伸成通向天窗光心的完美黄金螺线，极具秩序与延伸感。",
             stepByStepTips = listOf(
                 "切换 0.6x 超广角并打开「黄金螺旋」构图线",
@@ -263,6 +274,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.46f,
             lightDirectionDeg = 25f,
             linkedPresetId = "velvet_skin_portrait",
+            demoScene = SceneCategory.ACTION_PET,
             effectSummary = "彻底告别俯拍大头照，草地前景化为梦幻绿雾，1/800s 高速快门凝固胡须与眼神高光。",
             stepByStepTips = listOf(
                 "把手机倒过来握持，让摄像头紧贴草叶顶端，瞬间获得单反级前景虚化",
@@ -291,6 +303,7 @@ object FieldAssistantCatalog {
                 "适合沉稳肖像、复古胶片与男性棱角刻画",
             ),
             linkedPresetId = "terracotta_humanist",
+            demoScene = SceneCategory.PORTRAIT,
         ),
         LightingSetupGuide(
             id = "light_golden_rim",
@@ -307,6 +320,7 @@ object FieldAssistantCatalog {
                 "长焦镜头将背景暗色树丛纳入画面，金边发丝对比度翻倍",
             ),
             linkedPresetId = "amber_golden_hour",
+            demoScene = SceneCategory.PORTRAIT,
         ),
         LightingSetupGuide(
             id = "light_window_soft",
@@ -323,6 +337,7 @@ object FieldAssistantCatalog {
                 "人物离窗越近光比越戏剧化，退后 1.5 米则光线更柔和均匀",
             ),
             linkedPresetId = "velvet_skin_portrait",
+            demoScene = SceneCategory.PORTRAIT,
         ),
         LightingSetupGuide(
             id = "light_cyber_dual_color",
@@ -339,6 +354,7 @@ object FieldAssistantCatalog {
                 "白平衡固定在 4200K–4500K，切忌自动白平衡把霓虹色彩中和抵消",
             ),
             linkedPresetId = "city_neon_night",
+            demoScene = SceneCategory.NIGHT,
         ),
         LightingSetupGuide(
             id = "light_tabletop_grazing",
@@ -355,6 +371,7 @@ object FieldAssistantCatalog {
                 "深色木桌选负曝光 -0.3 EV，白色大理石桌选正曝光 +0.4 EV",
             ),
             linkedPresetId = "bistro_gourmet",
+            demoScene = SceneCategory.GOURMET,
         ),
     )
 

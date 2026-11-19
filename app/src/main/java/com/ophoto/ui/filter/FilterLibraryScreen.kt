@@ -124,6 +124,7 @@ import com.ophoto.ui.theme.TextOnAccent
 fun MasterPresetCard(
     preset: FilterPreset,
     sampleBitmap: android.graphics.Bitmap,
+    sceneLabel: String,
     container: OphotoContainer,
     onApplyCamera: () -> Unit,
     onLaunchOverlay: () -> Unit,
@@ -214,15 +215,25 @@ fun MasterPresetCard(
                     modifier = Modifier.size(15.dp),
                 )
             }
-            // 分类色点：一个 3dp 圆点取代标签块
-            Box(
-                Modifier
+            // 左上一个 3dp 色点 + 当前场景底片名（说明这张预览用的真实题材）
+            Row(
+                modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(10.dp)
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(accent),
-            )
+                    .padding(8.dp)
+                    .clip(OphotoShape.Chip)
+                    .background(Color(0x73000000))
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(accent))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = sceneLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1,
+                )
+            }
         }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(
@@ -294,15 +305,17 @@ fun FilterLibraryScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var shareTargetPreset by remember { mutableStateOf<FilterPreset?>(null) }
     var showOverlayGuideDialog by remember { mutableStateOf(false) }
+    // null = 自动按分类匹配；否则用用户挑的那张底片预览
+    var pinnedScene by remember { mutableStateOf<DemoPhoto?>(null) }
 
-    // 真实摄影底片：三张按分类自动匹配（人像 / 夜景 / 风光），不再用几何测试图
+    // 真实摄影底片：九张按分类自动匹配（人像 / 夜景 / 街头 / 风光 / 旅行 / 静物 / 建筑）
     val scenePhotos = remember {
-        // 卡片缩略图只需要 720px 级别；整幅 1440×1080 会显著拖慢首帧
-        DemoPhoto.entries.mapNotNull { p ->
+        // 九张底片按需解码到 720px：卡片缩略图不需要整幅 1440×1080
+        DemoPhoto.entries.associateWith { p ->
             runCatching { DemoPhotos.loadScaled(context, p, maxEdge = 720) }.getOrNull()
         }
     }
-    val baseSample = scenePhotos.getOrNull(2) ?: scenePhotos.firstOrNull()
+    val baseSample = scenePhotos[DemoPhoto.LANDSCAPE] ?: scenePhotos.values.firstOrNull { it != null }
 
     val fileImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -328,15 +341,12 @@ fun FilterLibraryScreen(
         }
     }
 
-    // 分类 → 场景底片：人像用窗光、夜景用街拍、其余用风光
+    // 默认按分类匹配最贴合的底片（见 DemoPhoto.forFilterCategory），用户也可手动锁定一张
+    fun photoFor(preset: FilterPreset): DemoPhoto = pinnedScene ?: DemoPhoto.forFilterCategory(preset.category)
+
     fun sampleFor(preset: FilterPreset): android.graphics.Bitmap {
-        val idx = when (preset.category) {
-            FilterCategory.PORTRAIT -> 0
-            FilterCategory.NIGHT -> 1
-            FilterCategory.MONOCHROME -> 1
-            else -> 2
-        }
-        return scenePhotos.getOrNull(idx) ?: baseSample ?: BuiltInPresets.createSamplePreviewBitmap(640, 360)
+        val photo = photoFor(preset)
+        return scenePhotos[photo] ?: baseSample ?: BuiltInPresets.createSamplePreviewBitmap(640, 360)
     }
 
     Column(
@@ -395,6 +405,81 @@ fun FilterLibraryScreen(
                     )
                 }
             }
+            Spacer(Modifier.height(10.dp))
+
+            // 预览底片：九张真实题材任选，锁定后所有卡片都用它出图
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "预览底片",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (pinnedScene == null) "按分类自动" else "已锁定「${pinnedScene!!.label}」",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (pinnedScene == null) TextMuted else BrassGold,
+                )
+                Spacer(Modifier.weight(1f))
+                if (pinnedScene != null) {
+                    Text(
+                        text = "恢复自动",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = BrassGold,
+                        modifier = Modifier
+                            .clip(OphotoShape.Chip)
+                            .background(BrassGoldSoft)
+                            .clickable { pinnedScene = null }
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                contentPadding = PaddingValues(end = 4.dp),
+            ) {
+                items(DemoPhoto.entries) { photo ->
+                    val selected = pinnedScene == photo
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(60.dp)
+                            .pressScale()
+                            .clickable { pinnedScene = if (selected) null else photo },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ControlPillBg.copy(alpha = 0.6f))
+                                .border(
+                                    width = if (selected) 2.dp else 0.7.dp,
+                                    color = if (selected) BrassGold else MaterialHairline,
+                                    shape = RoundedCornerShape(10.dp),
+                                ),
+                        ) {
+                            scenePhotos[photo]?.let { bmp ->
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = photo.label,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = photo.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selected) BrassGold else TextMuted,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(10.dp))
             if (overlayRunning) {
                 Row(
@@ -459,6 +544,7 @@ fun FilterLibraryScreen(
                     MasterPresetCard(
                         preset = preset,
                         sampleBitmap = sampleFor(preset),
+                        sceneLabel = photoFor(preset).label,
                         container = container,
                         onApplyCamera = { onApplyAndOpenCamera(preset.id) },
                         onLaunchOverlay = {

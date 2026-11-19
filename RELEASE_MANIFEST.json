@@ -1,7 +1,7 @@
 {
-  "version": "1.6.0",
-  "version_code": 13,
-  "tag": "v1.6.0",
+  "version": "1.6.1",
+  "version_code": 14,
+  "tag": "v1.6.1",
   "channel": "stable",
-  "codename": "Quiet Chrome"
+  "codename": "Nine Frames"
 }
