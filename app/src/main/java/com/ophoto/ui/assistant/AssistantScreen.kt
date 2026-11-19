@@ -341,7 +341,7 @@ private fun ShotCardDetailPanel(
 
         // 实拍样片 + 构图/灯位叠加（照片优先，辅助线只做提示）
         PhotoExamplePanel(
-            scene = photoSceneFor(card.category),
+            scene = photoSceneFor(card),
             title = card.effectSummary,
             compositionGuide = card.compositionGuide,
             subjectX = card.subjectNormalizedX,
@@ -907,17 +907,11 @@ private fun TimeSlotBadge(label: String, timeText: String, color: Color) {
    叠加层只保留必要的两条提示（构图线 + 主光方向），绝不遮挡画面。
    ──────────────────────────────────────────────────────────────────────────── */
 
-private fun photoSceneFor(category: SceneCategory): DemoPhoto = when (category) {
-    SceneCategory.PORTRAIT, SceneCategory.GOURMET -> DemoPhoto.PORTRAIT
-    SceneCategory.NIGHT, SceneCategory.STREET, SceneCategory.ARCHITECTURE -> DemoPhoto.STREET
-    else -> DemoPhoto.LANDSCAPE
-}
+private fun photoSceneFor(card: ShotInspirationCard): DemoPhoto =
+    DemoPhoto.forScene(card.demoScene)
 
-private fun photoSceneForGuide(guide: LightingSetupGuide): DemoPhoto = when {
-    guide.id.contains("window", true) || guide.id.contains("soft", true) -> DemoPhoto.PORTRAIT
-    guide.id.contains("night", true) || guide.id.contains("neon", true) -> DemoPhoto.STREET
-    else -> DemoPhoto.PORTRAIT
-}
+private fun photoSceneForGuide(guide: LightingSetupGuide): DemoPhoto =
+    DemoPhoto.forScene(guide.demoScene)
 
 @Composable
 private fun PhotoExamplePanel(

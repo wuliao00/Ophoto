@@ -182,9 +182,11 @@ fun GalleryEditorScreen(
 
     // --- Core image states ---
     // 真实样片作为「空状态」底图；真正拍照/选图后即被替换。
+    // 每次进入暗房轮换一张示例底片，避免「怎么永远是这张图」
+    val demoPhoto = remember { DemoPhotos.nextDarkroomPhoto() }
     var sourceBitmap by remember {
         mutableStateOf(
-            runCatching { DemoPhotos.load(context, DemoPhoto.LANDSCAPE) }
+            runCatching { DemoPhotos.load(context, demoPhoto) }
                 .getOrElse { BuiltInPresets.createSamplePreviewBitmap(900, 675) },
         )
     }
@@ -528,9 +530,15 @@ fun GalleryEditorScreen(
                     Text("从相册导入一张原片", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "已为你载入一张示例底片，可以在上面直接试滤镜",
+                        "当前是示例底片「${demoPhoto.label}」· ${demoPhoto.sceneHint}",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "可以直接在示例上试滤镜，导入后即切换到你的照片",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.38f),
                     )
                 }
             }
