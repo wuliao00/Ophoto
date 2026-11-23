@@ -130,6 +130,14 @@ fun SettingsScreen(
                     "自然画质进一步柔化（模拟大底自然高光滚降）",
                     settings.naturalSoftRendering,
                 ) { v -> scope.launch { container.preferences.update { it.copy(naturalSoftRendering = v) } } }
+                SettingSwitchRow(
+                    "25MP 直出：放宽 25MP 自动切换条件（超清优先，照度/ISO/温度放宽）",
+                    settings.unlock25mpDirect,
+                ) { v -> scope.launch { container.preferences.update { it.copy(unlock25mpDirect = v) } } }
+                SettingSwitchRow(
+                    "哈苏超清 200MP：解除人脸识别门禁（无大脸也走真 200M 全像素读出）",
+                    settings.unlock200mpWithoutFace,
+                ) { v -> scope.launch { container.preferences.update { it.copy(unlock200mpWithoutFace = v) } } }
             }
         }
 

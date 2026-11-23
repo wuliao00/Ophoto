@@ -94,6 +94,10 @@ data class UserSettings(
     val disableAiOversharp: Boolean = false,
     val disableLceEnhance: Boolean = false,
     val naturalSoftRendering: Boolean = false,
+    /** 放宽 25MP 自动切换条件（照度、ISO、温度与运动门禁放宽，大幅提高 25MP 直出触发率） */
+    val unlock25mpDirect: Boolean = true,
+    /** 哈苏超清 200MP 全像素直出（解除人脸识别门禁，无大脸也走真 200M 全像素读出） */
+    val unlock200mpWithoutFace: Boolean = true,
 
     // 拍摄习惯与模式记忆
     val shutterSoundInSilent: Boolean = true,
@@ -143,6 +147,8 @@ class AppPreferences(private val context: Context) {
         val DISABLE_AI_OVERSHARP = booleanPreferencesKey("disable_ai_oversharp")
         val DISABLE_LCE_ENHANCE = booleanPreferencesKey("disable_lce_enhance")
         val NATURAL_SOFT_RENDERING = booleanPreferencesKey("natural_soft_rendering")
+        val UNLOCK_25MP_DIRECT = booleanPreferencesKey("unlock_25mp_direct")
+        val UNLOCK_200MP_WITHOUT_FACE = booleanPreferencesKey("unlock_200mp_without_face")
         val SHUTTER_SOUND_IN_SILENT = booleanPreferencesKey("shutter_sound_in_silent")
         val SHUTTER_SOUND_VOLUME = floatPreferencesKey("shutter_sound_volume")
         val REMEMBER_MODE_SETTINGS = booleanPreferencesKey("remember_mode_settings")
@@ -193,6 +199,8 @@ class AppPreferences(private val context: Context) {
             disableAiOversharp = pref[Keys.DISABLE_AI_OVERSHARP] ?: false,
             disableLceEnhance = pref[Keys.DISABLE_LCE_ENHANCE] ?: false,
             naturalSoftRendering = pref[Keys.NATURAL_SOFT_RENDERING] ?: false,
+            unlock25mpDirect = pref[Keys.UNLOCK_25MP_DIRECT] ?: true,
+            unlock200mpWithoutFace = pref[Keys.UNLOCK_200MP_WITHOUT_FACE] ?: true,
             shutterSoundInSilent = pref[Keys.SHUTTER_SOUND_IN_SILENT] ?: true,
             shutterSoundVolume = pref[Keys.SHUTTER_SOUND_VOLUME] ?: 0.8f,
             rememberModeSettings = pref[Keys.REMEMBER_MODE_SETTINGS] ?: true,
@@ -287,6 +295,8 @@ class AppPreferences(private val context: Context) {
             pref[Keys.DISABLE_AI_OVERSHARP] = next.disableAiOversharp
             pref[Keys.DISABLE_LCE_ENHANCE] = next.disableLceEnhance
             pref[Keys.NATURAL_SOFT_RENDERING] = next.naturalSoftRendering
+            pref[Keys.UNLOCK_25MP_DIRECT] = next.unlock25mpDirect
+            pref[Keys.UNLOCK_200MP_WITHOUT_FACE] = next.unlock200mpWithoutFace
             pref[Keys.SHUTTER_SOUND_IN_SILENT] = next.shutterSoundInSilent
             pref[Keys.SHUTTER_SOUND_VOLUME] = next.shutterSoundVolume
             pref[Keys.REMEMBER_MODE_SETTINGS] = next.rememberModeSettings
