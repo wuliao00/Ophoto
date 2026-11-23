@@ -337,22 +337,28 @@ object OpticalSoftEngine {
     /** 给 UI 预览曲线用。 */
     fun grContrastLut(amount: Int): IntArray {
         val k = amount.coerceIn(-100, 100) / 100f
-        // 以 0.18 中灰为支点的 S 形，两端用有理函数压肩 / 抬趾
         val out = IntArray(256)
         for (i in 0..255) {
             val x = i / 255f
             val s = if (k >= 0f) {
-                // 增强：smoothstep 混合
-                val shaped = x * x * (3f - 2f * x)
-                x + (shaped - x) * k * 0.75f
+                // 增强：平滑 S 曲线，锚定 0 与 1 端点
+                val sCurve = x * x * (3f - 2f * x)
+                x + (sCurve - x) * k * 0.75f
             } else {
-                // 减弱：向中灰压缩
-                0.5f + (x - 0.5f) * (1f + k * 0.6f)
+                // 减弱：平缓过渡，保持 0 与 1 端点
+                x + (0.5f - x) * (0f - k) * 0.45f
             }
-            // 肩部：接近 1 时自然收敛，避免死白
-            val shoulder = if (s > 0.82f) 0.82f + (s - 0.82f) * 0.78f else s
-            val toe = if (shoulder < 0.06f) shoulder * 0.88f else shoulder
-            out[i] = (toe.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+            out[i] = (s.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        }
+        out[0] = 0
+        out[255] = 255
+        var cur = 1
+        while (cur <= 255) {
+            val prev = out[cur - 1]
+            if (out[cur] < prev) {
+                out[cur] = prev
+            }
+            cur++
         }
         return out
     }
