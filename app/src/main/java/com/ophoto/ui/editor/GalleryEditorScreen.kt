@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AutoFixHigh
 
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ColorLens
@@ -116,6 +117,7 @@ import com.ophoto.engine.image.HslBand
 import com.ophoto.engine.image.HslShift
 import com.ophoto.engine.image.ImageProcessEngine
 import com.ophoto.engine.image.OpticalSoftEngine
+import com.ophoto.engine.image.DarkroomRecipeTemplates
 import com.ophoto.engine.image.LocalMaskType
 import com.ophoto.engine.image.PhotoEditRecipe
 import com.ophoto.engine.metadata.CaptureExifMetadata
@@ -157,6 +159,7 @@ import com.ophoto.ui.theme.TextOnAccent
 // ------------------------------------------------------------------
 
 private enum class DarkroomToolTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    TEMPLATE("一键模板", Icons.Rounded.AutoAwesome),
     FILTER("胶片预设", Icons.Rounded.Palette),
     OPTICAL("光学柔光", Icons.Rounded.BlurOn),
     CURVES("曲线影调", Icons.Rounded.ShowChart),
@@ -744,6 +747,12 @@ fun GalleryEditorScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         when (activeToolTab) {
+                            DarkroomToolTab.TEMPLATE -> TemplateToolsPanel(
+                                onApplyTemplate = { tmpl ->
+                                    pushRecipeUpdate(tmpl.recipeBuilder())
+                                    Toast.makeText(context, "已套用「${tmpl.title}」大师配方", Toast.LENGTH_SHORT).show()
+                                }
+                            )
                             DarkroomToolTab.FILTER -> FilterToolsPanel(
                                 presets = presets,
                                 selectedPreset = recipe.preset,
@@ -1045,6 +1054,73 @@ private fun decodeThumbnail(context: android.content.Context, uriString: String)
 // =========================================================================
 
 @Composable
+@Composable
+private fun TemplateToolsPanel(
+    onApplyTemplate: (com.ophoto.engine.image.DarkroomTemplate) -> Unit,
+) {
+    Text(
+        "一键大师配方 · 融合胶片色彩、物理柔光、光晕与展厅画框",
+        style = MaterialTheme.typography.titleSmall,
+        color = BrassGold,
+    )
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(DarkroomRecipeTemplates.ALL) { tmpl ->
+            Column(
+                modifier = Modifier
+                    .width(150.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ControlPillBg)
+                    .border(1.dp, BrassGold.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .clickable { onApplyTemplate(tmpl) }
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(tmpl.tagColorHex).copy(alpha = 0.2f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            tmpl.badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(tmpl.tagColorHex),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Icon(
+                        Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        tint = BrassGold,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                Text(
+                    tmpl.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Text(
+                    tmpl.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+    }
+}
+
 private fun FilterToolsPanel(
     presets: List<com.ophoto.engine.filter.FilterPreset>,
     selectedPreset: com.ophoto.engine.filter.FilterPreset?,
