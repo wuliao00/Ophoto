@@ -85,6 +85,10 @@ data class PhotoEditRecipe(
     val halationStrength: Float = 0f,     // 0..1
     val filmAcutanceStrength: Float = 0f, // 0..1
     val grContrastAmount: Int = 0,        // -100..+100
+    // 大师色彩扩展（暗房配方级）
+    val masterColorFamily: com.ophoto.engine.filter.MasterColorFamily = com.ophoto.engine.filter.MasterColorFamily.STANDARD,
+    val masterToneWeight: Float = 1.0f,
+    val masterColorWeight: Float = 1.0f,
 ) {
     companion object {
         fun defaultLinearCurve(): List<CurvePoint> = listOf(
@@ -136,6 +140,32 @@ object ImageProcessEngine {
         }
 
         // 3.5. 实体物理柔光 / 光晕 / 乳剂锐度 / 理光对比度曲线（暗房配方级）
+        if (recipe.masterColorFamily != com.ophoto.engine.filter.MasterColorFamily.STANDARD) {
+            val w = current.width
+            val h = current.height
+            val pixels = IntArray(w * h).also { current.getPixels(it, 0, w, 0, 0, w, h) }
+            val tmp = FloatArray(3)
+            val tw = recipe.masterToneWeight
+            val cw = recipe.masterColorWeight
+            val fam = recipe.masterColorFamily
+            for (idx in pixels.indices) {
+                val c = pixels[idx]
+                val a = (c ushr 24) and 0xFF
+                val r = ((c ushr 16) and 0xFF) / 255f
+                val g = ((c ushr 8) and 0xFF) / 255f
+                val b = (c and 0xFF) / 255f
+                com.ophoto.engine.filter.MasterColorEngine.transform(r, g, b, fam, tw, cw, tmp)
+                val nr = (tmp[0] * 255f + 0.5f).toInt().coerceIn(0, 255)
+                val ng = (tmp[1] * 255f + 0.5f).toInt().coerceIn(0, 255)
+                val nb = (tmp[2] * 255f + 0.5f).toInt().coerceIn(0, 255)
+                pixels[idx] = (a shl 24) or (nr shl 16) or (ng shl 8) or nb
+            }
+            val mcBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
+                setPixels(pixels, 0, w, 0, 0, w, h)
+            }
+            if (current !== source) current.recycle()
+            current = mcBmp
+        }
         if (recipe.grContrastAmount != 0) {
             val gr = OpticalSoftEngine.applyGrContrast(current, recipe.grContrastAmount)
             if (current !== source) current.recycle()

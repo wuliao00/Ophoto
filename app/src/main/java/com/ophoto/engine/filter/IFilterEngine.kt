@@ -71,6 +71,10 @@ data class FilterParams(
     val filmAcutance: Int = 0,            // 0 .. 100
     /** 理光 GR 风格对比度曲线，作用在预设影调之前，-100 .. +100 */
     val grContrast: Int = 0,
+    /** 大师色彩家族（Leica, Canon, Lumix, Film Spektra, Darktable AgX） */
+    val masterFamily: MasterColorFamily = MasterColorFamily.STANDARD,
+    val masterToneWeight: Float = 1.0f,   // 0..1
+    val masterColorWeight: Float = 1.0f,  // 0..1
 )
 
 data class FilterPreset(
