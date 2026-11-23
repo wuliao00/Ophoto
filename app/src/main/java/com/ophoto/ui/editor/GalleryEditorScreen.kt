@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AutoFixHigh
 
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Compare
@@ -114,6 +115,7 @@ import com.ophoto.engine.image.FrameStyle
 import com.ophoto.engine.image.HslBand
 import com.ophoto.engine.image.HslShift
 import com.ophoto.engine.image.ImageProcessEngine
+import com.ophoto.engine.image.OpticalSoftEngine
 import com.ophoto.engine.image.LocalMaskType
 import com.ophoto.engine.image.PhotoEditRecipe
 import com.ophoto.engine.metadata.CaptureExifMetadata
@@ -156,10 +158,11 @@ import com.ophoto.ui.theme.TextOnAccent
 
 private enum class DarkroomToolTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     FILTER("胶片预设", Icons.Rounded.Palette),
+    OPTICAL("光学柔光", Icons.Rounded.BlurOn),
     CURVES("曲线影调", Icons.Rounded.ShowChart),
     HSL("HSL混色", Icons.Rounded.ColorLens),
     GEOMETRY("裁剪蒙版", Icons.Rounded.Crop),
-    EXPORT("画框导出", Icons.Rounded.Collections),
+    EXPORT("画框水印", Icons.Rounded.Collections),
 }
 
 private enum class CurveChannel(val label: String) {
@@ -751,6 +754,10 @@ fun GalleryEditorScreen(
                                 onStrength = { v -> pushRecipeUpdate(recipe.copy(presetStrength = v)) },
                                 onBatch = { launchBatchPicker() },
                             )
+                            DarkroomToolTab.OPTICAL -> OpticalToolsPanel(
+                                recipe = recipe,
+                                onRecipe = { pushRecipeUpdate(it) },
+                            )
                             DarkroomToolTab.CURVES -> CurvesToolsPanel(
                                 recipe = recipe,
                                 curveChannel = curveChannel,
@@ -774,6 +781,7 @@ fun GalleryEditorScreen(
                                 onRecipe = { pushRecipeUpdate(it) },
                                 onFormat = { exportFormat = it },
                                 onToggleGps = { stripExifLocation = !stripExifLocation },
+                                onBatchWatermark = { launchBatchPicker() },
                             )
                         }
                     }
@@ -1157,6 +1165,159 @@ private fun FilterThumbnailCard(
 // =========================================================================
 
 @Composable
+private fun OpticalToolsPanel(
+    recipe: PhotoEditRecipe,
+    onRecipe: (PhotoEditRecipe) -> Unit,
+) {
+    Text(
+        "物理光学模拟 · HDF / 黑柔 / 白柔 / 光晕 / 胶片乳剂",
+        style = MaterialTheme.typography.titleSmall,
+        color = BrassGold,
+    )
+
+    // 柔光滤镜列表（单选：点击选中，再次点击清除）
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            val isNone = recipe.opticalSoftFilterId.isBlank()
+            Column(
+                modifier = Modifier
+                    .width(84.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isNone) BrassGold.copy(alpha = 0.16f) else ControlPillBg)
+                    .border(1.dp, if (isNone) BrassGold else HairlineBorder, RoundedCornerShape(10.dp))
+                    .clickable { onRecipe(recipe.copy(opticalSoftFilterId = "", opticalSoftAmount = 0f)) }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("无滤镜", style = MaterialTheme.typography.labelSmall, color = if (isNone) BrassGold else TextSecondary, fontWeight = FontWeight.SemiBold)
+                Text("原厂透光", style = MaterialTheme.typography.bodySmall, color = TextMuted, maxLines = 1)
+            }
+        }
+        items(OpticalSoftEngine.SOFT_FILTERS) { spec ->
+            val isSelected = recipe.opticalSoftFilterId == spec.id
+            Column(
+                modifier = Modifier
+                    .width(108.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) BrassGold.copy(alpha = 0.16f) else ControlPillBg)
+                    .border(1.dp, if (isSelected) BrassGold else HairlineBorder, RoundedCornerShape(10.dp))
+                    .clickable {
+                        val nextAmt = if (recipe.opticalSoftAmount <= 0.01f) 0.8f else recipe.opticalSoftAmount
+                        onRecipe(recipe.copy(opticalSoftFilterId = spec.id, opticalSoftAmount = nextAmt))
+                    }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    spec.displayName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) BrassGold else TextPrimary,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+                Text(
+                    "散射 ${OpticalSoftEngine.scatterPercent(spec)}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                )
+            }
+        }
+    }
+
+    // 选中柔光滤镜时的浓度滑杆
+    if (recipe.opticalSoftFilterId.isNotBlank()) {
+        val curSpec = OpticalSoftEngine.findSoftFilter(recipe.opticalSoftFilterId)
+        if (curSpec != null) {
+            Text(curSpec.note, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("柔光浓度", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text(
+                "${(recipe.opticalSoftAmount * 100).roundToInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = BrassGold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            )
+        }
+        Slider(
+            value = recipe.opticalSoftAmount,
+            onValueChange = { onRecipe(recipe.copy(opticalSoftAmount = it)) },
+            valueRange = 0f..1f,
+            colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
+        )
+    }
+
+    // 光晕（Halation）滑杆
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text("胶片光晕 (Halation)", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Text(
+            "${(recipe.halationStrength * 100).roundToInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = ShutterOrange,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        )
+    }
+    Slider(
+        value = recipe.halationStrength,
+        onValueChange = { onRecipe(recipe.copy(halationStrength = it)) },
+        valueRange = 0f..1f,
+        colors = SliderDefaults.colors(thumbColor = ShutterOrange, activeTrackColor = ShutterOrange),
+    )
+
+    // 胶片乳剂锐度（自适应锐化）滑杆
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text("乳剂自适应锐度", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Text(
+            "${(recipe.filmAcutanceStrength * 100).roundToInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = OpticalEmerald,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        )
+    }
+    Slider(
+        value = recipe.filmAcutanceStrength,
+        onValueChange = { onRecipe(recipe.copy(filmAcutanceStrength = it)) },
+        valueRange = 0f..1f,
+        colors = SliderDefaults.colors(thumbColor = OpticalEmerald, activeTrackColor = OpticalEmerald),
+    )
+
+    // 理光 GR 对比度曲线滑杆
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text("理光 GR 影调曲线", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Text(
+            "${if (recipe.grContrastAmount >= 0) "+" else ""}${recipe.grContrastAmount}",
+            style = MaterialTheme.typography.labelSmall,
+            color = BrassGold,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        )
+    }
+    Slider(
+        value = recipe.grContrastAmount.toFloat(),
+        onValueChange = { onRecipe(recipe.copy(grContrastAmount = it.roundToInt())) },
+        valueRange = -50f..50f,
+        colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
+    )
+}
+
+@Composable
 private fun CurvesToolsPanel(
     recipe: PhotoEditRecipe,
     curveChannel: CurveChannel,
@@ -1492,6 +1653,7 @@ private fun ExportToolsPanel(
     onRecipe: (PhotoEditRecipe) -> Unit,
     onFormat: (ExportImageFormat) -> Unit,
     onToggleGps: () -> Unit,
+    onBatchWatermark: () -> Unit = {},
 ) {
     Text("大师签注画框 · 为作品赋予展览级呈现", style = MaterialTheme.typography.titleSmall, color = BrassGold)
 
@@ -1576,6 +1738,24 @@ private fun ExportToolsPanel(
                 Text(if (stripLocation) "✓ 已抹除 GPS 隐私" else "保留 GPS 位置", style = MaterialTheme.typography.labelSmall, color = if (stripLocation) ShutterOrange else TextSecondary)
             }
         }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(BrassGold.copy(alpha = 0.16f))
+            .border(1.dp, BrassGold, RoundedCornerShape(10.dp))
+            .clickable(onClick = onBatchWatermark)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("批量套用此画框 / 水印", style = MaterialTheme.typography.labelMedium, color = BrassGold, fontWeight = FontWeight.Bold)
+            Text("多选照片后台套用当前签名样式，选「无」即批量去除", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Icon(Icons.Rounded.Collections, contentDescription = null, tint = BrassGold, modifier = Modifier.size(20.dp))
     }
 
     Surface(color = ControlPillBg.copy(alpha = 0.7f), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {

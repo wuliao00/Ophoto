@@ -79,6 +79,12 @@ data class PhotoEditRecipe(
     val localMaskWarmth: Int = 0,
     val frameStyle: FrameStyle = FrameStyle.NONE,
     val customWatermarkText: String = "",
+    // 实体柔光模拟（独立于预设，可在暗房任意叠加）
+    val opticalSoftFilterId: String = "",
+    val opticalSoftAmount: Float = 0f,    // 0..1
+    val halationStrength: Float = 0f,     // 0..1
+    val filmAcutanceStrength: Float = 0f, // 0..1
+    val grContrastAmount: Int = 0,        // -100..+100
 ) {
     companion object {
         fun defaultLinearCurve(): List<CurvePoint> = listOf(
@@ -127,6 +133,41 @@ object ImageProcessEngine {
             val advanced = applyCurvesHslAndMask(current, recipe, hasHslChange, hasLocalMask)
             if (current !== source) current.recycle()
             current = advanced
+        }
+
+        // 3.5. 实体物理柔光 / 光晕 / 乳剂锐度 / 理光对比度曲线（暗房配方级）
+        if (recipe.grContrastAmount != 0) {
+            val gr = OpticalSoftEngine.applyGrContrast(current, recipe.grContrastAmount)
+            if (current !== source) current.recycle()
+            current = gr
+        }
+        if (recipe.opticalSoftFilterId.isNotBlank() && recipe.opticalSoftAmount > 0.001f) {
+            val spec = OpticalSoftEngine.findSoftFilter(recipe.opticalSoftFilterId)
+            if (spec != null) {
+                val soft = OpticalSoftEngine.applySoftFilter(
+                    source = current,
+                    spec = spec,
+                    amount = recipe.opticalSoftAmount,
+                    halation = recipe.halationStrength,
+                )
+                if (current !== source) current.recycle()
+                current = soft
+            }
+        } else if (recipe.halationStrength > 0.001f) {
+            val spec = OpticalSoftEngine.findSoftFilter("diffusion") ?: OpticalSoftEngine.SOFT_FILTERS.first()
+            val soft = OpticalSoftEngine.applySoftFilter(
+                source = current,
+                spec = spec,
+                amount = recipe.halationStrength * 0.35f,
+                halation = recipe.halationStrength,
+            )
+            if (current !== source) current.recycle()
+            current = soft
+        }
+        if (recipe.filmAcutanceStrength > 0.001f) {
+            val sharp = OpticalSoftEngine.applyFilmAcutance(current, recipe.filmAcutanceStrength)
+            if (current !== source) current.recycle()
+            current = sharp
         }
 
         // 4. Optional Gallery Frame & EXIF Signature Watermark

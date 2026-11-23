@@ -908,10 +908,10 @@ private fun TimeSlotBadge(label: String, timeText: String, color: Color) {
    ──────────────────────────────────────────────────────────────────────────── */
 
 private fun photoSceneFor(card: ShotInspirationCard): DemoPhoto =
-    DemoPhoto.forScene(card.demoScene)
+    card.demoPhoto
 
 private fun photoSceneForGuide(guide: LightingSetupGuide): DemoPhoto =
-    DemoPhoto.forScene(guide.demoScene)
+    guide.demoPhoto
 
 @Composable
 private fun PhotoExamplePanel(

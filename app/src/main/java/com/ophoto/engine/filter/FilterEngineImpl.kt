@@ -3,6 +3,7 @@ package com.ophoto.engine.filter
 import android.graphics.Bitmap
 import android.graphics.Color
 import java.io.File
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.ln
 import kotlin.math.max
@@ -101,6 +102,9 @@ class FilterEngineImpl : IFilterEngine {
         val p = preset.params
         val lut = activeLut
         val lutOut = FloatArray(3)
+        // 理光 GR 风格对比度：作用在预设影调之前（与原厂相机一致的做法），
+        // 用 256 级查表实现，避免逐像素三角函数开销。
+        val grLut = if (p.grContrast != 0) com.ophoto.engine.image.OpticalSoftEngine.grContrastLut(p.grContrast) else null
 
         val expMul = 2.0f.pow(p.exposureEv)
         val tempShift = p.temperature / 100f * 0.14f
@@ -117,6 +121,11 @@ class FilterEngineImpl : IFilterEngine {
         val shTint = parseHexRgb(p.shadowTintHex)
         val castMix = (p.colorCastStrength / 100f).coerceIn(0f, 1f)
         val grainAmp = (p.grainStrength / 100f) * 0.085f
+        // 颗粒尺寸：0 = 极细（每像素独立噪声），100 = 粗颗粒（约 4px 团块）。
+        // 真实胶片颗粒是团簇状的，所以用「粗层 + 细层」混合，尺寸越大粗层占比越高。
+        val grainScaleT = (p.grainSize.coerceIn(0, 100) / 100f)
+        val grainCell = 1f + grainScaleT * 3f          // 1 .. 4 px 团块
+        val grainCoarseMix = grainScaleT * 0.72f       // 粗层权重
         val vignetteAmt = (p.vignette / 100f) * 0.62f
         val leakAmt = (p.lightLeak / 100f) * 0.35f
         val softAmt = (p.softGlow / 100f) * 0.22f
@@ -132,9 +141,10 @@ class FilterEngineImpl : IFilterEngine {
                 val nx = (x - halfW) / halfW
                 val argb = srcPixels[idx]
                 val a = (argb ushr 24) and 0xFF
-                val origR = ((argb ushr 16) and 0xFF) / 255f
-                val origG = ((argb ushr 8) and 0xFF) / 255f
-                val origB = (argb and 0xFF) / 255f
+                // GR 对比度曲线在预设影调之前生效（查表，零额外开销）
+                val origR = if (grLut != null) grLut[((argb ushr 16) and 0xFF)] / 255f else ((argb ushr 16) and 0xFF) / 255f
+                val origG = if (grLut != null) grLut[((argb ushr 8) and 0xFF)] / 255f else ((argb ushr 8) and 0xFF) / 255f
+                val origB = if (grLut != null) grLut[(argb and 0xFF)] / 255f else (argb and 0xFF) / 255f
 
                 // 1 & 2. Exposure
                 var r = origR * expMul
@@ -212,12 +222,26 @@ class FilterEngineImpl : IFilterEngine {
                     }
                 }
 
-                // 8. Procedural deterministic film grain
+                // 8. 胶片颗粒：细层 + 团簇粗层，尺寸与强度互相独立
                 if (grainAmp > 0.001f) {
-                    val hash = ((x * 73856093) xor (y * 19349663) xor 0x5A17) and 0xFFFF
-                    val noise = (hash / 32767.5f) - 1f
+                    val fineHash = ((x * 73856093) xor (y * 19349663) xor 0x5A17) and 0xFFFF
+                    val fine = (fineHash / 32767.5f) - 1f
+                    var noise = fine
+                    if (grainScaleT > 0.01f) {
+                        // 团块坐标：向下取整到 grainCell 像素的网格，再叠加一层域扰动，
+                        // 让颗粒边界不规则（真实乳剂颗粒不是方格）
+                        val cx = floor(x / grainCell).toInt()
+                        val cy = floor(y / grainCell).toInt()
+                        val jitter = ((x * 2654435761L ushr 13) and 0xFF).toFloat() / 255f
+                        val coarseHash = ((cx * 374761393) xor (cy * 668265263) xor 0x27D4EB2F) and 0xFFFF
+                        val coarse = (coarseHash / 32767.5f) - 1f
+                        noise = fine * (1f - grainCoarseMix) + coarse * grainCoarseMix + (jitter - 0.5f) * 0.18f
+                    }
+                    // 中间调颗粒最明显，高光与阴影处收敛（银盐颗粒的典型分布）
                     val midWeight = 1f - kotlin.math.abs(2f * luma - 1f) * 0.45f
-                    val grain = noise * grainAmp * midWeight
+                    // 粗颗粒单点振幅更小，否则会显得像噪点而不是颗粒
+                    val sizeAmp = 1f / (1f + grainScaleT * 0.45f)
+                    val grain = noise * grainAmp * midWeight * sizeAmp
                     r += grain
                     g += grain
                     b += grain
@@ -258,9 +282,57 @@ class FilterEngineImpl : IFilterEngine {
             gradedPixels
         }
 
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        var resultBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
             setPixels(finalPixels, 0, width, 0, 0, width, height)
         }
+
+        // 13. 实体物理柔光滤镜（HDF / 黑柔 / 白柔 / 珠光 / 柔焦），仅在预设配置时生效
+        if (p.softFilterId.isNotBlank() && p.softFilterAmount > 0) {
+            val spec = com.ophoto.engine.image.OpticalSoftEngine.findSoftFilter(p.softFilterId)
+            if (spec != null) {
+                val softAmt = (p.softFilterAmount / 100f) * mix
+                val halAmt = (p.halation / 100f) * mix
+                val softBmp = com.ophoto.engine.image.OpticalSoftEngine.applySoftFilter(
+                    source = resultBmp,
+                    spec = spec,
+                    amount = softAmt,
+                    halation = halAmt,
+                )
+                if (softBmp !== resultBmp) {
+                    resultBmp.recycle()
+                    resultBmp = softBmp
+                }
+            }
+        } else if (p.halation > 0) {
+            // 无独立柔光时，单独叠加光晕（用温和的 diffusion 作为光晕载体）
+            val spec = com.ophoto.engine.image.OpticalSoftEngine.findSoftFilter("diffusion")
+                ?: com.ophoto.engine.image.OpticalSoftEngine.SOFT_FILTERS.first()
+            val halAmt = (p.halation / 100f) * mix
+            val halBmp = com.ophoto.engine.image.OpticalSoftEngine.applySoftFilter(
+                source = resultBmp,
+                spec = spec,
+                amount = halAmt * 0.4f,
+                halation = halAmt,
+            )
+            if (halBmp !== resultBmp) {
+                resultBmp.recycle()
+                resultBmp = halBmp
+            }
+        }
+
+        // 14. 胶片乳剂锐度（局部自适应锐化，保留平坦区域纯净度）
+        if (p.filmAcutance > 0) {
+            val acutanceBmp = com.ophoto.engine.image.OpticalSoftEngine.applyFilmAcutance(
+                source = resultBmp,
+                amount = (p.filmAcutance / 100f) * mix,
+            )
+            if (acutanceBmp !== resultBmp) {
+                resultBmp.recycle()
+                resultBmp = acutanceBmp
+            }
+        }
+
+        return resultBmp
     }
 
     override fun computeHistogram(bitmap: Bitmap): HistogramData {

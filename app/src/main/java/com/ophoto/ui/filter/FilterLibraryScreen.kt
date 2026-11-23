@@ -316,7 +316,7 @@ fun FilterLibraryScreen(
             runCatching { DemoPhotos.loadScaled(context, p, maxEdge = 720) }.getOrNull()
         }
     }
-    val baseSample = scenePhotos[DemoPhoto.LANDSCAPE] ?: scenePhotos.values.firstOrNull { it != null }
+    val baseSample = scenePhotos[DemoPhoto.LANDSCAPE_AMBER] ?: scenePhotos.values.firstOrNull { it != null }
 
     val fileImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -342,8 +342,8 @@ fun FilterLibraryScreen(
         }
     }
 
-    // 默认按分类匹配最贴合的底片（见 DemoPhoto.forFilterCategory），用户也可手动锁定一张
-    fun photoFor(preset: FilterPreset): DemoPhoto = pinnedScene ?: DemoPhoto.forFilterCategory(preset.category)
+    // 默认优先按预设专属题材精准对齐底片（每个预设独立定制视觉！），用户也可手动锁定单张
+    fun photoFor(preset: FilterPreset): DemoPhoto = pinnedScene ?: DemoPhoto.forPresetId(preset.id)
 
     fun sampleFor(preset: FilterPreset): android.graphics.Bitmap {
         val photo = photoFor(preset)

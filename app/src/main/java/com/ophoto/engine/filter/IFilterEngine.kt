@@ -60,6 +60,17 @@ data class FilterParams(
     val lightLeak: Int = 0,               // 0 .. 100
     val sharpness: Int = 0,               // 0 .. 100
     val monochrome: Boolean = false,
+    // 颗粒尺寸：与强度相互独立（真实底片的颗粒是「大小 × 密度」两把尺）
+    val grainSize: Int = 40,              // 0 .. 100，40 为胶片原生粒度
+    /** 物理柔光滤镜 id（见 OpticalSoftEngine.SOFT_FILTERS），blank = 无 */
+    val softFilterId: String = "",
+    val softFilterAmount: Int = 0,        // 0 .. 100
+    /** 光晕（Halation）：只作用于接近剪切的高光 */
+    val halation: Int = 0,                // 0 .. 100
+    /** 胶片乳剂锐度（局部自适应锐化） */
+    val filmAcutance: Int = 0,            // 0 .. 100
+    /** 理光 GR 风格对比度曲线，作用在预设影调之前，-100 .. +100 */
+    val grContrast: Int = 0,
 )
 
 data class FilterPreset(
