@@ -6,7 +6,7 @@
 [![Stack](https://img.shields.io/badge/Kotlin%202.0-Compose%20%2B%20Camera2%20%2B%20OpenGL%20ES%203.0-E5B869)](app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **📥 直接下载手机 APK 安装包（GitHub Releases）**：[**Ophoto v1.6.1 Nine Frames 正式签名版 (`Ophoto-v1.6.1-release.apk`)**](https://github.com/wuliao00/Ophoto/releases/latest) · **更新日志**: [CHANGELOG.md](CHANGELOG.md)
+> **📥 直接下载手机 APK 安装包（GitHub Releases）**：[**Ophoto v1.7.0 Optical Muse & Aesthetic Looks 正式签名版 (`Ophoto-v1.7.0-release.apk`)**](https://github.com/wuliao00/Ophoto/releases/latest) · **更新日志**: [CHANGELOG.md](CHANGELOG.md)
 > **英文文档 / English README**: [README.en.md](README.en.md) · **架构与安全规范**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · **浏览器实时光学预览台**: [`docs/web-studio/index.html`](docs/web-studio/index.html)
 
 **Ophoto**（包名：`com.ophoto`）是一款专为 **OPPO / OnePlus（一加）/ realme 真我（ColorOS 13–17 / OxygenOS / realme UI）** 深度打磨、同时完整兼容主流 Android 8.0+（API 26–35）机型的**专业光学相机、实时 3D LUT 胶片调色、系统大师模式悬浮窗与摄影现场助手一体化应用**。
