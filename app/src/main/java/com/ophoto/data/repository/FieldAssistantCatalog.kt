@@ -106,7 +106,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.38f,
             lightDirectionDeg = 135f,
             linkedPresetId = "amber_golden_hour",
-            demoScene = SceneCategory.PORTRAIT,
+            demoPhoto = DemoPhoto.PORTRAIT_SUNLIGHT,
             effectSummary = "太阳位于人物斜后方 135°，发丝与肩线勾勒璀璨金边，背景树影化成温暖光斑。",
             stepByStepTips = listOf(
                 "切至 3x 长焦（约 70mm），让人物背对斜下方太阳并侧身回眸 30°",
@@ -274,7 +274,7 @@ object FieldAssistantCatalog {
             subjectNormalizedY = 0.46f,
             lightDirectionDeg = 25f,
             linkedPresetId = "velvet_skin_portrait",
-            demoScene = SceneCategory.ACTION_PET,
+            demoPhoto = DemoPhoto.ACTION_RUN,
             effectSummary = "彻底告别俯拍大头照，草地前景化为梦幻绿雾，1/800s 高速快门凝固胡须与眼神高光。",
             stepByStepTips = listOf(
                 "把手机倒过来握持，让摄像头紧贴草叶顶端，瞬间获得单反级前景虚化",
@@ -303,7 +303,7 @@ object FieldAssistantCatalog {
                 "适合沉稳肖像、复古胶片与男性棱角刻画",
             ),
             linkedPresetId = "terracotta_humanist",
-            demoScene = SceneCategory.PORTRAIT,
+            demoPhoto = DemoPhoto.PORTRAIT_SUNLIGHT,
         ),
         LightingSetupGuide(
             id = "light_golden_rim",
@@ -320,7 +320,7 @@ object FieldAssistantCatalog {
                 "长焦镜头将背景暗色树丛纳入画面，金边发丝对比度翻倍",
             ),
             linkedPresetId = "amber_golden_hour",
-            demoScene = SceneCategory.PORTRAIT,
+            demoPhoto = DemoPhoto.PORTRAIT_SUNLIGHT,
         ),
         LightingSetupGuide(
             id = "light_window_soft",

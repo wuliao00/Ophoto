@@ -316,7 +316,7 @@ fun FilterLibraryScreen(
             runCatching { DemoPhotos.loadScaled(context, p, maxEdge = 720) }.getOrNull()
         }
     }
-    val baseSample = scenePhotos[DemoPhoto.LANDSCAPE] ?: scenePhotos.values.firstOrNull { it != null }
+    val baseSample = scenePhotos[DemoPhoto.LANDSCAPE_AMBER] ?: scenePhotos.values.firstOrNull { it != null }
 
     val fileImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult

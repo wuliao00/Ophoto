@@ -1165,7 +1165,6 @@ private fun FilterThumbnailCard(
 // =========================================================================
 
 @Composable
-@Composable
 private fun OpticalToolsPanel(
     recipe: PhotoEditRecipe,
     onRecipe: (PhotoEditRecipe) -> Unit,
@@ -1318,6 +1317,7 @@ private fun OpticalToolsPanel(
     )
 }
 
+@Composable
 private fun CurvesToolsPanel(
     recipe: PhotoEditRecipe,
     curveChannel: CurveChannel,
