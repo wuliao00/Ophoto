@@ -1175,6 +1175,72 @@ private fun OpticalToolsPanel(
         color = BrassGold,
     )
 
+    // ── 大师色彩家族（Leica, Canon, Lumix, Spektrafilm, AgX）──────
+    Text("大师色彩家族 · 跨品牌色彩科学与影调重塑", style = MaterialTheme.typography.labelMedium, color = BrassGold)
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(com.ophoto.engine.filter.MasterColorFamily.entries) { fam ->
+            val isSel = recipe.masterColorFamily == fam
+            Column(
+                modifier = Modifier
+                    .width(110.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSel) BrassGold.copy(alpha = 0.16f) else ControlPillBg)
+                    .border(1.dp, if (isSel) BrassGold else HairlineBorder, RoundedCornerShape(10.dp))
+                    .clickable { onRecipe(recipe.copy(masterColorFamily = fam)) }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    fam.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSel) BrassGold else TextPrimary,
+                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+                Text(
+                    fam.description.take(12) + "...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+
+    if (recipe.masterColorFamily != com.ophoto.engine.filter.MasterColorFamily.STANDARD) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("色彩混合权重", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text("${(recipe.masterColorWeight * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = BrassGold)
+        }
+        Slider(
+            value = recipe.masterColorWeight,
+            onValueChange = { onRecipe(recipe.copy(masterColorWeight = it)) },
+            valueRange = 0f..1f,
+            colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("影调混合权重", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text("${(recipe.masterToneWeight * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = OpticalEmerald)
+        }
+        Slider(
+            value = recipe.masterToneWeight,
+            onValueChange = { onRecipe(recipe.copy(masterToneWeight = it)) },
+            valueRange = 0f..1f,
+            colors = SliderDefaults.colors(thumbColor = OpticalEmerald, activeTrackColor = OpticalEmerald),
+        )
+    }
+
+    Spacer(Modifier.height(6.dp))
     // 柔光滤镜列表（单选：点击选中，再次点击清除）
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item {

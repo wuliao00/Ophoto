@@ -192,6 +192,22 @@ class FilterEngineImpl : IFilterEngine {
                     b = lutOut[2]
                 }
 
+                // 5.5 大师色彩家族（Leica M9, Canon R5, Lumix S9, Spektrafilm, AgX）
+                if (p.masterFamily != MasterColorFamily.STANDARD) {
+                    MasterColorEngine.transform(
+                        r = r,
+                        g = g,
+                        b = b,
+                        family = p.masterFamily,
+                        toneWeight = p.masterToneWeight,
+                        colorWeight = p.masterColorWeight,
+                        out = lutOut,
+                    )
+                    r = lutOut[0]
+                    g = lutOut[1]
+                    b = lutOut[2]
+                }
+
                 // 6. Split toning (Highlight / Shadow color cast)
                 if (castMix > 0.001f) {
                     val lumNow = (0.2126f * r + 0.7152f * g + 0.0722f * b).coerceIn(0f, 1f)

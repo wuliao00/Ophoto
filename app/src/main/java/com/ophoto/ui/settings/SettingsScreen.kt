@@ -115,6 +115,89 @@ fun SettingsScreen(
                 }
             }
         }
+        // ── 借鉴 OmniCam-Muse：画质自然化 ──────────────────────────
+        item {
+            SettingsGroupCard("画质自然化", icon = Icons.Rounded.Tune) {
+                SettingSwitchRow(
+                    "关闭 AI 细节过度锐化（文字/毛发保持原生光学质感）",
+                    settings.disableAiOversharp,
+                ) { v -> scope.launch { container.preferences.update { it.copy(disableAiOversharp = v) } } }
+                SettingSwitchRow(
+                    "关闭局部对比度增强（LCE，避免高反差硬黑边）",
+                    settings.disableLceEnhance,
+                ) { v -> scope.launch { container.preferences.update { it.copy(disableLceEnhance = v) } } }
+                SettingSwitchRow(
+                    "自然画质进一步柔化（模拟大底自然高光滚降）",
+                    settings.naturalSoftRendering,
+                ) { v -> scope.launch { container.preferences.update { it.copy(naturalSoftRendering = v) } } }
+            }
+        }
+
+        // ── 借鉴 OmniCam-Muse：拍摄习惯与模式记忆 ──────────────────
+        item {
+            SettingsGroupCard("拍摄习惯与模式记忆", icon = Icons.Rounded.CameraAlt) {
+                SettingSwitchRow(
+                    "静音/振动模式下照常播放物理快门声",
+                    settings.shutterSoundInSilent,
+                ) { v -> scope.launch { container.preferences.update { it.copy(shutterSoundInSilent = v) } } }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("快门声音量", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text("${(settings.shutterSoundVolume * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = BrassGold)
+                }
+                Slider(
+                    value = settings.shutterSoundVolume,
+                    onValueChange = { vol -> scope.launch { container.preferences.update { it.copy(shutterSoundVolume = vol) } } },
+                    valueRange = 0.1f..1.0f,
+                    colors = SliderDefaults.colors(thumbColor = BrassGold, activeTrackColor = BrassGold),
+                )
+
+                SettingSwitchRow(
+                    "按模式独立记忆闪光灯、实况与滤镜状态",
+                    settings.rememberModeSettings,
+                ) { v -> scope.launch { container.preferences.update { it.copy(rememberModeSettings = v) } } }
+
+                Spacer(Modifier.height(4.dp))
+                Text("启动直达目标模式", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val modes = listOf("MASTER" to "大师模式", "GR" to "理光GR", "VINTAGE" to "复古CCD", "PRO" to "专业模式", "STREET" to "街拍")
+                    items(modes) { (id, label) ->
+                        TopHudChip(label, settings.quickLaunchTarget == id) {
+                            scope.launch { container.preferences.update { it.copy(quickLaunchTarget = id) } }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = settings.customDeviceExifModel,
+                    onValueChange = { m -> scope.launch { container.preferences.update { it.copy(customDeviceExifModel = m) } } },
+                    label = { Text("机型标识伪装（留空使用真实物理机型）", style = MaterialTheme.typography.labelSmall) },
+                    placeholder = { Text(hw.displayTitle, style = MaterialTheme.typography.bodySmall, color = TextMuted) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        // ── 借鉴 OmniCam-Muse：专业视频与变焦 ───────────────────────
+        item {
+            SettingsGroupCard("专业视频与画质策略", icon = Icons.Rounded.CameraAlt) {
+                SettingSwitchRow(
+                    "4K 60fps 高帧率保持实时滤镜渲染（不降级）",
+                    settings.videoKeepFilter4k60,
+                ) { v -> scope.launch { container.preferences.update { it.copy(videoKeepFilter4k60 = v) } } }
+                SettingSwitchRow(
+                    "传感器内变焦 ISZ 解禁（2× 与 6× 超分裁切不失真）",
+                    settings.videoInSensorZoomIsz,
+                ) { v -> scope.launch { container.preferences.update { it.copy(videoInSensorZoomIsz = v) } } }
+            }
+        }
+
         // 1. OPPO / ColorOS Hardware & Physical Lens Inspector
         item {
             SettingsGroupCard("镜头与传感器", icon = Icons.Rounded.CameraAlt) {

@@ -88,6 +88,26 @@ data class UserSettings(
     val autoHideChrome: Boolean = true,
     /** 长按取景画面隐藏全部叠层（纯构图模式）。 */
     val longPressCleanView: Boolean = true,
+
+    // ── 借鉴 OmniCam-Muse 体验扩展 ────────────────────────
+    // 画质自然化：关闭 AI 细节过度锐化 / 关闭 LCE 局部对比度 / 进一步柔化
+    val disableAiOversharp: Boolean = false,
+    val disableLceEnhance: Boolean = false,
+    val naturalSoftRendering: Boolean = false,
+
+    // 拍摄习惯与模式记忆
+    val shutterSoundInSilent: Boolean = true,
+    val shutterSoundVolume: Float = 0.8f,          // 0.0 .. 1.0
+    val rememberModeSettings: Boolean = true,      // 各拍摄模式独立记忆闪光灯、实况与滤镜
+    val quickLaunchTarget: String = "MASTER",      // 快速启动目标模式: MASTER, GR, VINTAGE, PRO, STREET
+    val customDeviceExifModel: String = "",        // 机型伪装 (留空使用真实物理机型)
+
+    // 视频增强
+    val videoKeepFilter4k60: Boolean = true,       // 4K60 录制保留实时滤镜
+    val videoInSensorZoomIsz: Boolean = true,      // 传感器内变焦 ISZ (2x / 6x 裁切保留画质)
+
+    // 相册交互
+    val quickFilterBarGesture: Boolean = true,     // 大师卡片上滑/长按唤起快捷滤镜条
 )
 
 class AppPreferences(private val context: Context) {
@@ -119,6 +139,18 @@ class AppPreferences(private val context: Context) {
         val KEEP_AE_ON_TAP = booleanPreferencesKey("keep_ae_on_tap")
         val AUTO_HIDE_CHROME = booleanPreferencesKey("auto_hide_chrome")
         val LONG_PRESS_CLEAN_VIEW = booleanPreferencesKey("long_press_clean_view")
+
+        val DISABLE_AI_OVERSHARP = booleanPreferencesKey("disable_ai_oversharp")
+        val DISABLE_LCE_ENHANCE = booleanPreferencesKey("disable_lce_enhance")
+        val NATURAL_SOFT_RENDERING = booleanPreferencesKey("natural_soft_rendering")
+        val SHUTTER_SOUND_IN_SILENT = booleanPreferencesKey("shutter_sound_in_silent")
+        val SHUTTER_SOUND_VOLUME = floatPreferencesKey("shutter_sound_volume")
+        val REMEMBER_MODE_SETTINGS = booleanPreferencesKey("remember_mode_settings")
+        val QUICK_LAUNCH_TARGET = stringPreferencesKey("quick_launch_target")
+        val CUSTOM_DEVICE_EXIF_MODEL = stringPreferencesKey("custom_device_exif_model")
+        val VIDEO_KEEP_FILTER_4K60 = booleanPreferencesKey("video_keep_filter_4k60")
+        val VIDEO_ISZ = booleanPreferencesKey("video_in_sensor_zoom_isz")
+        val QUICK_FILTER_BAR_GESTURE = booleanPreferencesKey("quick_filter_bar_gesture")
     }
 
     val settingsFlow: Flow<UserSettings> = context.ophotoDataStore.data.map { pref ->
@@ -158,6 +190,17 @@ class AppPreferences(private val context: Context) {
             keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
             autoHideChrome = pref[Keys.AUTO_HIDE_CHROME] ?: true,
             longPressCleanView = pref[Keys.LONG_PRESS_CLEAN_VIEW] ?: true,
+            disableAiOversharp = pref[Keys.DISABLE_AI_OVERSHARP] ?: false,
+            disableLceEnhance = pref[Keys.DISABLE_LCE_ENHANCE] ?: false,
+            naturalSoftRendering = pref[Keys.NATURAL_SOFT_RENDERING] ?: false,
+            shutterSoundInSilent = pref[Keys.SHUTTER_SOUND_IN_SILENT] ?: true,
+            shutterSoundVolume = pref[Keys.SHUTTER_SOUND_VOLUME] ?: 0.8f,
+            rememberModeSettings = pref[Keys.REMEMBER_MODE_SETTINGS] ?: true,
+            quickLaunchTarget = pref[Keys.QUICK_LAUNCH_TARGET] ?: "MASTER",
+            customDeviceExifModel = pref[Keys.CUSTOM_DEVICE_EXIF_MODEL] ?: "",
+            videoKeepFilter4k60 = pref[Keys.VIDEO_KEEP_FILTER_4K60] ?: true,
+            videoInSensorZoomIsz = pref[Keys.VIDEO_ISZ] ?: true,
+            quickFilterBarGesture = pref[Keys.QUICK_FILTER_BAR_GESTURE] ?: true,
         )
     }
 
@@ -203,6 +246,17 @@ class AppPreferences(private val context: Context) {
                 keepAeOnTap = pref[Keys.KEEP_AE_ON_TAP] ?: false,
                 autoHideChrome = pref[Keys.AUTO_HIDE_CHROME] ?: true,
                 longPressCleanView = pref[Keys.LONG_PRESS_CLEAN_VIEW] ?: true,
+                disableAiOversharp = pref[Keys.DISABLE_AI_OVERSHARP] ?: false,
+                disableLceEnhance = pref[Keys.DISABLE_LCE_ENHANCE] ?: false,
+                naturalSoftRendering = pref[Keys.NATURAL_SOFT_RENDERING] ?: false,
+                shutterSoundInSilent = pref[Keys.SHUTTER_SOUND_IN_SILENT] ?: true,
+                shutterSoundVolume = pref[Keys.SHUTTER_SOUND_VOLUME] ?: 0.8f,
+                rememberModeSettings = pref[Keys.REMEMBER_MODE_SETTINGS] ?: true,
+                quickLaunchTarget = pref[Keys.QUICK_LAUNCH_TARGET] ?: "MASTER",
+                customDeviceExifModel = pref[Keys.CUSTOM_DEVICE_EXIF_MODEL] ?: "",
+                videoKeepFilter4k60 = pref[Keys.VIDEO_KEEP_FILTER_4K60] ?: true,
+                videoInSensorZoomIsz = pref[Keys.VIDEO_ISZ] ?: true,
+                quickFilterBarGesture = pref[Keys.QUICK_FILTER_BAR_GESTURE] ?: true,
             )
             val next = block(current)
             pref[Keys.SHUTTER_SOUND] = next.shutterSound
@@ -230,6 +284,17 @@ class AppPreferences(private val context: Context) {
             pref[Keys.KEEP_AE_ON_TAP] = next.keepAeOnTap
             pref[Keys.AUTO_HIDE_CHROME] = next.autoHideChrome
             pref[Keys.LONG_PRESS_CLEAN_VIEW] = next.longPressCleanView
+            pref[Keys.DISABLE_AI_OVERSHARP] = next.disableAiOversharp
+            pref[Keys.DISABLE_LCE_ENHANCE] = next.disableLceEnhance
+            pref[Keys.NATURAL_SOFT_RENDERING] = next.naturalSoftRendering
+            pref[Keys.SHUTTER_SOUND_IN_SILENT] = next.shutterSoundInSilent
+            pref[Keys.SHUTTER_SOUND_VOLUME] = next.shutterSoundVolume
+            pref[Keys.REMEMBER_MODE_SETTINGS] = next.rememberModeSettings
+            pref[Keys.QUICK_LAUNCH_TARGET] = next.quickLaunchTarget
+            pref[Keys.CUSTOM_DEVICE_EXIF_MODEL] = next.customDeviceExifModel
+            pref[Keys.VIDEO_KEEP_FILTER_4K60] = next.videoKeepFilter4k60
+            pref[Keys.VIDEO_ISZ] = next.videoInSensorZoomIsz
+            pref[Keys.QUICK_FILTER_BAR_GESTURE] = next.quickFilterBarGesture
         }
     }
 
