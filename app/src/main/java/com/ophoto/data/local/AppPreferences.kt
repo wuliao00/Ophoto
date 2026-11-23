@@ -201,8 +201,6 @@ class AppPreferences(private val context: Context) {
             naturalSoftRendering = pref[Keys.NATURAL_SOFT_RENDERING] ?: false,
             unlock25mpDirect = pref[Keys.UNLOCK_25MP_DIRECT] ?: true,
             unlock200mpWithoutFace = pref[Keys.UNLOCK_200MP_WITHOUT_FACE] ?: true,
-            unlock25mpDirect = pref[Keys.UNLOCK_25MP_DIRECT] ?: true,
-            unlock200mpWithoutFace = pref[Keys.UNLOCK_200MP_WITHOUT_FACE] ?: true,
             shutterSoundInSilent = pref[Keys.SHUTTER_SOUND_IN_SILENT] ?: true,
             shutterSoundVolume = pref[Keys.SHUTTER_SOUND_VOLUME] ?: 0.8f,
             rememberModeSettings = pref[Keys.REMEMBER_MODE_SETTINGS] ?: true,

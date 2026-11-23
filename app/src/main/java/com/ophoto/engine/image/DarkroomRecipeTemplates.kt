@@ -117,7 +117,7 @@ object DarkroomRecipeTemplates {
                     masterColorFamily = MasterColorFamily.LUMIX_S9,
                     masterToneWeight = 0.70f,
                     masterColorWeight = 0.75f,
-                    cropPreset = CropAspectPreset.ASPECT_16_9,
+                    cropPreset = CropAspectPreset.R_16_9,
                     frameStyle = FrameStyle.CLASSIC_WHITE,
                 )
             },

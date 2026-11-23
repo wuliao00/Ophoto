@@ -1054,7 +1054,6 @@ private fun decodeThumbnail(context: android.content.Context, uriString: String)
 // =========================================================================
 
 @Composable
-@Composable
 private fun TemplateToolsPanel(
     onApplyTemplate: (com.ophoto.engine.image.DarkroomTemplate) -> Unit,
 ) {
@@ -1121,6 +1120,7 @@ private fun TemplateToolsPanel(
     }
 }
 
+@Composable
 private fun FilterToolsPanel(
     presets: List<com.ophoto.engine.filter.FilterPreset>,
     selectedPreset: com.ophoto.engine.filter.FilterPreset?,
